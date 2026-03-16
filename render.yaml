@@ -5,7 +5,6 @@ services:
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
-    plan: free
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -34,7 +33,6 @@ services:
     buildCommand: npm install && npm run build
     staticPublishPath: ./dist
     rootDir: frontend
-    plan: free
     envVars:
       - key: VITE_API_URL
         value: REMPLACER_PAR_URL_BACKEND
