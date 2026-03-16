@@ -32,7 +32,7 @@ const DocumentWorkflow: React.FC<Props> = ({ document }) => {
     try {
       await signMutation.mutateAsync({
         id: document.id,
-        data: { type_signature: 'approbation', commentaire: comment },
+        data: { role_signature: 'approbation', commentaire: comment },
       });
       setSignOpen(false);
       setComment('');
