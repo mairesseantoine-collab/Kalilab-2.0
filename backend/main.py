@@ -23,9 +23,25 @@ from routers import (
 )
 
 
+async def auto_seed():
+    """Seed la base de données si elle est vide (premier démarrage)."""
+    try:
+        from sqlalchemy import select
+        from database.engine import async_session
+        from database.models import User
+        async with async_session() as session:
+            result = await session.execute(select(User).limit(1))
+            if result.scalar_one_or_none() is None:
+                import seed as seed_module
+                await seed_module.seed()
+    except Exception as e:
+        print(f"[WARN] Auto-seed ignoré : {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await create_db_and_tables()
+    await auto_seed()
     yield
 
 
