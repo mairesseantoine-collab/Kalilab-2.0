@@ -72,3 +72,8 @@ async def root():
         "status": "operational",
         "documentation": "/docs",
     }
+
+
+@app.get("/health", tags=["Racine"])
+async def health():
+    return {"status": "ok"}
