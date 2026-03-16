@@ -52,6 +52,51 @@ async def list_indicators(
     ]
 
 
+@router.get("/indicators/{indicator_id}")
+async def get_indicator(
+    indicator_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    ind = await session.get(IndicateurQualite, indicator_id)
+    if not ind:
+        raise HTTPException(status_code=404, detail="Indicateur introuvable")
+    return {"id": ind.id, "nom": ind.nom, "code": ind.code, "periodicite": ind.periodicite,
+            "formule": ind.formule, "cible": ind.cible, "unite": ind.unite,
+            "processus_id": ind.processus_id, "created_at": ind.created_at}
+
+
+@router.put("/indicators/{indicator_id}")
+async def update_indicator(
+    indicator_id: int,
+    data: IndicateurCreate,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.QUALITICIEN)),
+):
+    ind = await session.get(IndicateurQualite, indicator_id)
+    if not ind:
+        raise HTTPException(status_code=404, detail="Indicateur introuvable")
+    for key, value in data.dict(exclude_unset=True).items():
+        setattr(ind, key, value)
+    session.add(ind)
+    await session.commit()
+    await session.refresh(ind)
+    return {"id": ind.id, "code": ind.code}
+
+
+@router.get("/mesures")
+async def list_mesures_alias(
+    indicateur_id: Optional[int] = None,
+    periode: Optional[str] = None,
+    skip: int = 0,
+    limit: int = Query(default=100, le=500),
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Alias de GET / pour compatibilité frontend."""
+    return await list_kpi_mesures(indicateur_id, periode, skip, limit, session, current_user)
+
+
 @router.post("/indicators", status_code=status.HTTP_201_CREATED)
 async def create_indicator(
     request: Request,
