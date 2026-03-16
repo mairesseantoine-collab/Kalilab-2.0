@@ -6,7 +6,7 @@ import {
   alpha,
 } from '@mui/material';
 import {
-  Visibility, VisibilityOff, Science,
+  Visibility, VisibilityOff,
   VerifiedUser, Speed, Groups,
 } from '@mui/icons-material';
 import { useForm } from 'react-hook-form';
@@ -22,9 +22,9 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>;
 
 const FEATURES = [
-  { icon: <VerifiedUser fontSize="small" />, label: 'Traçabilité qualité ISO 15189' },
+  { icon: <VerifiedUser fontSize="small" />, label: 'Traçabilité qualité ISO 15189 · BELAC 668-MED' },
   { icon: <Speed fontSize="small" />, label: 'Tableau de bord en temps réel' },
-  { icon: <Groups fontSize="small" />, label: 'Conçu pour votre équipe' },
+  { icon: <Groups fontSize="small" />, label: 'Sites Ste-Elisabeth · St-Michel · Bella Vita' },
 ];
 
 const LoginPage: React.FC = () => {
@@ -58,28 +58,24 @@ const LoginPage: React.FC = () => {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #1F497D 100%)',
+        background: 'linear-gradient(135deg, #0a1628 0%, #0c3060 50%, #0779BF 100%)',
         p: 2,
         position: 'relative',
         overflow: 'hidden',
         '&::before': {
           content: '""',
           position: 'absolute',
-          top: '-30%',
-          right: '-10%',
-          width: '60vw',
-          height: '60vw',
+          top: '-30%', right: '-10%',
+          width: '60vw', height: '60vw',
           borderRadius: '50%',
-          background: alpha('#2D6BA3', 0.15),
+          background: alpha('#0779BF', 0.18),
           pointerEvents: 'none',
         },
         '&::after': {
           content: '""',
           position: 'absolute',
-          bottom: '-20%',
-          left: '-10%',
-          width: '50vw',
-          height: '50vw',
+          bottom: '-20%', left: '-10%',
+          width: '50vw', height: '50vw',
           borderRadius: '50%',
           background: alpha('#00897B', 0.1),
           pointerEvents: 'none',
@@ -92,12 +88,12 @@ const LoginPage: React.FC = () => {
           flexDirection: { xs: 'column', md: 'row' },
           gap: 4,
           width: '100%',
-          maxWidth: 860,
+          maxWidth: 900,
           position: 'relative',
           zIndex: 1,
         }}
       >
-        {/* Left panel — branding */}
+        {/* Left panel — branding Cliniques de l'Europe */}
         <Box
           sx={{
             flex: 1,
@@ -108,37 +104,38 @@ const LoginPage: React.FC = () => {
             pr: 4,
           }}
         >
-          <Stack direction="row" alignItems="center" spacing={1.5} mb={3}>
+          {/* Logo + nom */}
+          <Stack direction="row" alignItems="center" spacing={2} mb={3}>
             <Box
+              component="img"
+              src="https://www.cliniquesdeleurope.be/themes/custom/ceez_theme/logo.png"
+              alt="Cliniques de l'Europe"
               sx={{
-                width: 52, height: 52,
-                bgcolor: 'rgba(255,255,255,0.15)',
-                borderRadius: 2,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                backdropFilter: 'blur(8px)',
-                border: '1px solid rgba(255,255,255,0.2)',
+                height: 44,
+                filter: 'brightness(0) invert(1)',
+                objectFit: 'contain',
               }}
-            >
-              <Science sx={{ fontSize: 28, color: '#fff' }} />
-            </Box>
-            <Box>
-              <Typography variant="h4" fontWeight={800} color="#fff" lineHeight={1}>
-                KaliLab
-              </Typography>
-              <Typography variant="caption" color="rgba(255,255,255,0.7)">
-                Système qualité de laboratoire
-              </Typography>
-            </Box>
+              onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
+                e.currentTarget.style.display = 'none';
+              }}
+            />
           </Stack>
 
-          <Typography variant="h5" fontWeight={700} color="#fff" mb={1.5} lineHeight={1.4}>
-            Gérez votre qualité<br />
-            <Box component="span" sx={{ color: '#7dd3fc' }}>sereinement.</Box>
+          <Typography variant="h4" fontWeight={800} color="#fff" lineHeight={1.2} mb={0.5}>
+            Cliniques de l'Europe
+          </Typography>
+          <Typography variant="subtitle1" color="rgba(255,255,255,0.7)" mb={3} fontWeight={400}>
+            Laboratoire de Biologie Clinique
+          </Typography>
+
+          <Typography variant="h6" fontWeight={700} color="#fff" mb={1} lineHeight={1.5}>
+            Gestion qualité<br />
+            <Box component="span" sx={{ color: '#7dd3fc' }}>ISO 15189 intégrée.</Box>
           </Typography>
 
           <Typography variant="body2" color="rgba(255,255,255,0.65)" mb={4} lineHeight={1.8}>
-            Plateforme de gestion qualité ISO 15189 conçue pour les laboratoires médicaux.
-            Suivez vos non-conformités, vos équipements et vos documents en un seul endroit.
+            Plateforme SMQ dédiée au laboratoire — suivez vos non-conformités,
+            équipements, risques et documents en un seul endroit.
           </Typography>
 
           <Stack spacing={1.5}>
@@ -147,8 +144,7 @@ const LoginPage: React.FC = () => {
                 <Box
                   sx={{
                     color: '#7dd3fc',
-                    display: 'flex',
-                    p: 0.5,
+                    display: 'flex', p: 0.5,
                     bgcolor: 'rgba(125,211,252,0.1)',
                     borderRadius: 1,
                   }}
@@ -161,7 +157,7 @@ const LoginPage: React.FC = () => {
           </Stack>
         </Box>
 
-        {/* Right panel — login form */}
+        {/* Right panel — formulaire */}
         <Card
           sx={{
             width: { xs: '100%', md: 400 },
@@ -172,10 +168,23 @@ const LoginPage: React.FC = () => {
         >
           <CardContent sx={{ p: 4 }}>
             {/* Mobile logo */}
-            <Box textAlign="center" mb={4} display={{ xs: 'block', md: 'none' }}>
-              <Science sx={{ fontSize: 48, color: 'primary.main', mb: 1 }} />
-              <Typography variant="h5" fontWeight={700} color="primary.main">KaliLab</Typography>
-              <Typography variant="body2" color="text.secondary">Système qualité de laboratoire</Typography>
+            <Box textAlign="center" mb={3} display={{ xs: 'flex', md: 'none' }}
+              flexDirection="column" alignItems="center" gap={1}>
+              <Box
+                component="img"
+                src="https://www.cliniquesdeleurope.be/themes/custom/ceez_theme/logo.png"
+                alt="Cliniques de l'Europe"
+                sx={{ height: 36, objectFit: 'contain' }}
+                onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
+              <Typography variant="subtitle1" fontWeight={700} color="primary.main">
+                Cliniques de l'Europe
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Laboratoire de Biologie Clinique
+              </Typography>
             </Box>
 
             <Typography variant="h6" fontWeight={700} mb={0.5}>
@@ -193,32 +202,23 @@ const LoginPage: React.FC = () => {
 
             <form onSubmit={handleSubmit(onSubmit)} noValidate>
               <TextField
-                fullWidth
-                label="Adresse e-mail"
-                type="email"
-                autoComplete="email"
-                autoFocus
-                error={!!errors.email}
-                helperText={errors.email?.message}
-                sx={{ mb: 2 }}
-                {...register('email')}
+                fullWidth label="Adresse e-mail" type="email"
+                autoComplete="email" autoFocus
+                error={!!errors.email} helperText={errors.email?.message}
+                sx={{ mb: 2 }} {...register('email')}
               />
               <TextField
-                fullWidth
-                label="Mot de passe"
+                fullWidth label="Mot de passe"
                 type={showPassword ? 'text' : 'password'}
                 autoComplete="current-password"
-                error={!!errors.password}
-                helperText={errors.password?.message}
+                error={!!errors.password} helperText={errors.password?.message}
                 sx={{ mb: 3 }}
                 InputProps={{
                   endAdornment: (
                     <InputAdornment position="end">
                       <IconButton
                         onClick={() => setShowPassword(!showPassword)}
-                        edge="end"
-                        size="small"
-                        tabIndex={-1}
+                        edge="end" size="small" tabIndex={-1}
                       >
                         {showPassword ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
                       </IconButton>
@@ -228,20 +228,12 @@ const LoginPage: React.FC = () => {
                 {...register('password')}
               />
               <Button
-                fullWidth
-                type="submit"
-                variant="contained"
-                size="large"
+                fullWidth type="submit" variant="contained" size="large"
                 disabled={loading}
                 sx={{
-                  height: 48,
-                  borderRadius: 2,
-                  fontSize: '1rem',
-                  fontWeight: 600,
-                  boxShadow: '0 4px 14px rgba(31,73,125,0.4)',
-                  '&:hover': {
-                    boxShadow: '0 6px 20px rgba(31,73,125,0.5)',
-                  },
+                  height: 48, borderRadius: 2, fontSize: '1rem', fontWeight: 600,
+                  boxShadow: '0 4px 14px rgba(7,121,191,0.4)',
+                  '&:hover': { boxShadow: '0 6px 20px rgba(7,121,191,0.5)' },
                 }}
               >
                 {loading ? <CircularProgress size={22} color="inherit" /> : 'Se connecter'}
@@ -252,10 +244,9 @@ const LoginPage: React.FC = () => {
 
             <Box
               sx={{
-                p: 1.5,
-                borderRadius: 1.5,
-                bgcolor: alpha('#1F497D', 0.06),
-                border: `1px solid ${alpha('#1F497D', 0.12)}`,
+                p: 1.5, borderRadius: 1.5,
+                bgcolor: alpha('#0779BF', 0.06),
+                border: `1px solid ${alpha('#0779BF', 0.12)}`,
               }}
             >
               <Typography variant="caption" color="text.secondary" display="block" textAlign="center">

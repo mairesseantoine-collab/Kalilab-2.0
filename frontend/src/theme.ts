@@ -3,9 +3,9 @@ import { createTheme, alpha } from '@mui/material/styles'
 export const theme = createTheme({
   palette: {
     primary: {
-      main: '#1F497D',      // identique au dégradé AppBar
-      light: '#4A73A8',
-      dark: '#143660',
+      main: '#0779BF',      // Cliniques de l'Europe
+      light: '#3A9CD1',
+      dark: '#0557A3',
       contrastText: '#FFFFFF',
     },
     secondary: {

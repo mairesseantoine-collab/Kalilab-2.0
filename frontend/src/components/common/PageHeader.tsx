@@ -94,7 +94,7 @@ const PageHeader: React.FC<Props> = ({
               minHeight: subtitle || stats ? 56 : 38,
               borderRadius: 2,
               flexShrink: 0,
-              background: 'linear-gradient(180deg, #1F497D 0%, #2D6BA3 100%)',
+              background: 'linear-gradient(180deg, #0779BF 0%, #3A9CD1 100%)',
             }}
           />
 
@@ -152,10 +152,10 @@ const PageHeader: React.FC<Props> = ({
               startIcon={action.icon}
               sx={{
                 bgcolor: action.color ?? 'primary.main',
-                boxShadow: `0 2px 8px ${alpha(action.color ?? '#1F497D', 0.35)}`,
+                boxShadow: `0 2px 8px ${alpha(action.color ?? '#0779BF', 0.35)}`,
                 '&:hover': {
                   bgcolor: action.color ? alpha(action.color, 0.85) : 'primary.dark',
-                  boxShadow: `0 4px 16px ${alpha(action.color ?? '#1F497D', 0.45)}`,
+                  boxShadow: `0 4px 16px ${alpha(action.color ?? '#0779BF', 0.45)}`,
                   transform: 'translateY(-1px)',
                 },
               }}

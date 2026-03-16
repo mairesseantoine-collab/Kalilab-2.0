@@ -171,16 +171,40 @@ const AppLayout: React.FC = () => {
       {/* Logo */}
       <Toolbar
         sx={{
-          background: `linear-gradient(135deg, #1F497D 0%, #2D6BA3 100%)`,
+          background: `linear-gradient(135deg, #0779BF 0%, #0557A3 100%)`,
           color: 'white',
           minHeight: '64px !important',
         }}
       >
-        <Box display="flex" alignItems="center" gap={1.5}>
-          <Science sx={{ fontSize: 28 }} />
-          <Box>
-            <Typography variant="h6" fontWeight={800} lineHeight={1}>KaliLab</Typography>
-            <Typography variant="caption" sx={{ opacity: 0.75, fontSize: 10 }}>SMQ ISO 15189</Typography>
+        <Box display="flex" alignItems="center" gap={1.5} sx={{ overflow: 'hidden' }}>
+          {/* Logo Cliniques de l'Europe — blanc sur fond bleu */}
+          <Box
+            component="img"
+            src="https://www.cliniquesdeleurope.be/themes/custom/ceez_theme/logo.png"
+            alt="Cliniques de l'Europe"
+            sx={{
+              height: 30,
+              flexShrink: 0,
+              filter: 'brightness(0) invert(1)',
+              objectFit: 'contain',
+            }}
+            onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
+              e.currentTarget.style.display = 'none';
+            }}
+          />
+          <Box minWidth={0}>
+            <Typography
+              variant="subtitle2"
+              fontWeight={800}
+              lineHeight={1.1}
+              noWrap
+              sx={{ fontSize: 12 }}
+            >
+              Cliniques de l'Europe
+            </Typography>
+            <Typography variant="caption" sx={{ opacity: 0.75, fontSize: 9.5, letterSpacing: '0.02em' }}>
+              Labo. Biologie Clinique
+            </Typography>
           </Box>
         </Box>
         {isMobile && (
@@ -231,17 +255,17 @@ const AppLayout: React.FC = () => {
                           borderRadius: 1.5,
                           py: 0.75,
                           '&.Mui-selected': {
-                            bgcolor: alpha('#1F497D', 0.09),
-                            color: '#1F497D',
-                            boxShadow: 'inset 3px 0 0 #1F497D',
-                            '& .MuiListItemIcon-root': { color: '#1F497D' },
+                            bgcolor: alpha('#0779BF', 0.09),
+                            color: '#0779BF',
+                            boxShadow: 'inset 3px 0 0 #0779BF',
+                            '& .MuiListItemIcon-root': { color: '#0779BF' },
                             '& .MuiTypography-root': { fontWeight: 700 },
-                            '&:hover': { bgcolor: alpha('#1F497D', 0.13) },
+                            '&:hover': { bgcolor: alpha('#0779BF', 0.13) },
                           },
-                          '&:hover': { bgcolor: alpha('#1F497D', 0.05) },
+                          '&:hover': { bgcolor: alpha('#0779BF', 0.05) },
                         }}
                       >
-                        <ListItemIcon sx={{ minWidth: 34, color: active ? '#1F497D' : 'text.secondary' }}>
+                        <ListItemIcon sx={{ minWidth: 34, color: active ? '#0779BF' : 'text.secondary' }}>
                           {item.icon}
                         </ListItemIcon>
                         <ListItemText
@@ -276,9 +300,9 @@ const AppLayout: React.FC = () => {
             bgcolor: 'white',
             transition: 'all 0.15s',
             '&:hover': {
-              bgcolor: alpha('#1F497D', 0.04),
-              borderColor: alpha('#1F497D', 0.3),
-              boxShadow: `0 2px 8px ${alpha('#1F497D', 0.1)}`,
+              bgcolor: alpha('#0779BF', 0.04),
+              borderColor: alpha('#0779BF', 0.3),
+              boxShadow: `0 2px 8px ${alpha('#0779BF', 0.1)}`,
             },
           }}
           onClick={(e) => setAnchorEl(e.currentTarget as HTMLElement)}
@@ -323,7 +347,7 @@ const AppLayout: React.FC = () => {
         elevation={0}
         sx={{
           zIndex: theme.zIndex.drawer + 1,
-          background: 'linear-gradient(135deg, #1F497D 0%, #2D6BA3 100%)',
+          background: 'linear-gradient(135deg, #0779BF 0%, #0557A3 100%)',
           borderBottom: '1px solid rgba(255,255,255,0.08)',
           boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
         }}
@@ -339,7 +363,7 @@ const AppLayout: React.FC = () => {
           <Typography variant="subtitle1" noWrap fontWeight={500} sx={{ opacity: 0.9, mr: 2 }}>
             {navGroups
               .flatMap(g => g.items)
-              .find(item => isActive(item.path))?.label ?? 'KaliLab'}
+              .find(item => isActive(item.path))?.label ?? 'Cliniques de l\'Europe'}
           </Typography>
 
           {/* Command Palette trigger */}
