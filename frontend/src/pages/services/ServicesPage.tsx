@@ -277,6 +277,7 @@ const ServicesPage: React.FC = () => {
     queryFn: () => servicesApi.list(
       siteFilter !== 'all' ? { site: siteFilter, actif: true } : { actif: true }
     ).then(r => r.data),
+    staleTime: 30 * 60 * 1000, // 30 min — arborescence rarement modifiée
   });
 
   const filtered = services.filter(s => {

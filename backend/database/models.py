@@ -96,6 +96,10 @@ class DocumentQualite(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     uuid: str = Field(default_factory=lambda: str(uuid.uuid4()), unique=True)
     titre: str = Field(index=True)
+    # e-Document Control
+    type_document: Optional[str] = Field(default=None, index=True)    # SOP, mode_operatoire…
+    numero_document: Optional[str] = Field(default=None, index=True)  # ex: QP-PREL-001
+    periodicite_revision: Optional[int] = None                         # tous les N mois
     theme: Optional[str] = Field(default=None, index=True)
     classification: Optional[str] = None
     service_id: Optional[int] = Field(default=None, foreign_key="services.id", index=True)
@@ -112,6 +116,17 @@ class DocumentQualite(SQLModel, table=True):
     contenu: Optional[str] = Field(default=None, sa_column=Column(Text))
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class LectureDocument(SQLModel, table=True):
+    """Accusé de réception / traçabilité de lecture (e-Document Control ISO 15189)."""
+    __tablename__ = "lectures_documents"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    document_id: int = Field(foreign_key="documents_qualite.id", index=True)
+    user_id: int = Field(foreign_key="users.id", index=True)
+    version_lue: str = Field(default="1.0")
+    lu_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    commentaire: Optional[str] = None
 
 
 class Signature(SQLModel, table=True):

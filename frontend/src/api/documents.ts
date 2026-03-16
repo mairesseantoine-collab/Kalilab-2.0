@@ -33,4 +33,6 @@ export const documentsApi = {
     );
   },
   getHistory: (id: number) => client.get<{ versions: any[]; signatures: any[] }>(`/documents/${id}/history`),
+  accuserReception: (id: number) => client.post(`/documents/${id}/accuse-reception`),
+  getLectures: (id: number) => client.get<{ total: number; lectures: any[] }>(`/documents/${id}/lectures`),
 };

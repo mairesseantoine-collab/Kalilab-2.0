@@ -6,6 +6,7 @@ export const useDocuments = (params?: Record<string, unknown>) => {
   return useQuery({
     queryKey: ['documents', params],
     queryFn: () => documentsApi.list(params).then((r) => r.data),
+    staleTime: 3 * 60 * 1000, // 3 min
   });
 };
 
@@ -14,6 +15,7 @@ export const useDocument = (id: number) => {
     queryKey: ['documents', id],
     queryFn: () => documentsApi.get(id).then((r) => r.data),
     enabled: !!id,
+    staleTime: 2 * 60 * 1000,
   });
 };
 

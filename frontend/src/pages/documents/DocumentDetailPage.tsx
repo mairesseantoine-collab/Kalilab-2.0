@@ -5,20 +5,85 @@ import {
   List, ListItem, ListItemText, Avatar, Skeleton, Button,
   IconButton, Tooltip, Dialog, DialogTitle, DialogContent,
   DialogActions, TextField, Alert, LinearProgress, Stack,
+  Table, TableBody, TableCell, TableRow, Collapse,
 } from '@mui/material';
 import {
   Edit, ArrowBack, AttachFile, Download, SwapHoriz,
   InsertDriveFile, History as HistoryIcon, CheckCircle, Cancel,
+  Visibility, VisibilityOff, HowToReg, PeopleAlt, ExpandMore, ExpandLess,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDocument } from '../../hooks/useDocuments';
 import PageHeader from '../../components/common/PageHeader';
 import StatusChip from '../../components/common/StatusChip';
 import ErrorAlert from '../../components/common/ErrorAlert';
 import DocumentWorkflow from '../../components/documents/DocumentWorkflow';
 import { documentsApi } from '../../api/documents';
+import { useAuth } from '../../hooks/useAuth';
 import dayjs from 'dayjs';
+
+// ─── Inline PDF viewer ─────────────────────────────────────────────────────
+
+const PdfViewer: React.FC<{ docId: number }> = ({ docId }) => {
+  const [url, setUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [open, setOpen] = useState(false);
+
+  const load = async () => {
+    if (url) { setOpen(o => !o); return; }
+    setLoading(true);
+    setError('');
+    try {
+      const res = await documentsApi.getDownloadUrl(docId);
+      setUrl(res.data.url);
+      setOpen(true);
+    } catch {
+      setError('Impossible de charger le fichier');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Box>
+      <Stack direction="row" spacing={1} alignItems="center" mb={1}>
+        <Button
+          size="small"
+          variant="outlined"
+          startIcon={open ? <VisibilityOff /> : <Visibility />}
+          onClick={load}
+          disabled={loading}
+        >
+          {loading ? 'Chargement…' : open ? 'Masquer' : 'Visualiser le PDF'}
+        </Button>
+      </Stack>
+      {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
+      <Collapse in={open}>
+        {url && (
+          <Box
+            sx={{
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: 1,
+              overflow: 'hidden',
+              mt: 1,
+            }}
+          >
+            <iframe
+              src={`${url}#toolbar=1`}
+              title="PDF"
+              width="100%"
+              height={600}
+              style={{ display: 'block', border: 'none' }}
+            />
+          </Box>
+        )}
+      </Collapse>
+    </Box>
+  );
+};
 
 // ─── File attachment card ──────────────────────────────────────────────────
 
@@ -34,8 +99,8 @@ const FileCard: React.FC<{ doc: any; onRefresh: () => void }> = ({ doc, onRefres
   const [success, setSuccess] = useState('');
 
   const hasFile = !!doc.fichier_path;
+  const isPdf = hasFile && doc.fichier_path?.toLowerCase().endsWith('.pdf');
 
-  // Extract display filename from storage path
   const displayFilename = (): string => {
     if (!doc.fichier_path) return '';
     const parts = doc.fichier_path.split('/');
@@ -55,7 +120,7 @@ const FileCard: React.FC<{ doc: any; onRefresh: () => void }> = ({ doc, onRefres
       queryClient.invalidateQueries({ queryKey: ['document', doc.id] });
       onRefresh();
     } catch {
-      setError('Erreur lors de l\'envoi du fichier');
+      setError("Erreur lors de l'envoi du fichier");
     } finally {
       setUploadLoading(false);
     }
@@ -120,6 +185,7 @@ const FileCard: React.FC<{ doc: any; onRefresh: () => void }> = ({ doc, onRefres
               </Tooltip>
             </Stack>
 
+            {isPdf && <PdfViewer docId={doc.id} />}
             {uploadLoading && <LinearProgress sx={{ mb: 1 }} />}
           </Box>
         ) : (
@@ -155,7 +221,6 @@ const FileCard: React.FC<{ doc: any; onRefresh: () => void }> = ({ doc, onRefres
           </Box>
         )}
 
-        {/* Hidden file input for replace */}
         <input
           ref={replaceInputRef}
           type="file"
@@ -165,7 +230,6 @@ const FileCard: React.FC<{ doc: any; onRefresh: () => void }> = ({ doc, onRefres
         />
       </CardContent>
 
-      {/* Replace Dialog */}
       <Dialog open={replaceDialog} onClose={() => setReplaceDialog(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Remplacer le fichier</DialogTitle>
         <DialogContent>
@@ -223,9 +287,6 @@ const FileCard: React.FC<{ doc: any; onRefresh: () => void }> = ({ doc, onRefres
 // ─── Version + File History ────────────────────────────────────────────────
 
 const FileHistory: React.FC<{ historique: any[] }> = ({ historique }) => {
-  const fileEvents = historique.filter((h: any) => h.type === 'fichier');
-  const versionEvents = historique.filter((h: any) => h.type !== 'fichier');
-
   if (historique.length === 0) {
     return <Typography variant="body2" color="text.secondary">Aucun historique</Typography>;
   }
@@ -277,6 +338,125 @@ const FileHistory: React.FC<{ historique: any[] }> = ({ historique }) => {
   );
 };
 
+// ─── Qui a lu (e-Document Control) ────────────────────────────────────────
+
+const QuiALu: React.FC<{ docId: number; version: string; maLecture: any }> = ({ docId, version, maLecture }) => {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const [expanded, setExpanded] = useState(false);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['document-lectures', docId],
+    queryFn: () => documentsApi.getLectures(docId).then(r => r.data),
+    staleTime: 60 * 1000,
+    enabled: expanded,
+  });
+
+  const mutation = useMutation({
+    mutationFn: () => documentsApi.accuserReception(docId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['documents', docId] });
+      queryClient.invalidateQueries({ queryKey: ['document-lectures', docId] });
+    },
+  });
+
+  const dejaLu = maLecture?.lu && maLecture?.a_jour;
+  const luAncienneVersion = maLecture?.lu && !maLecture?.a_jour;
+
+  return (
+    <Card sx={{ mb: 2 }}>
+      <CardContent sx={{ pb: '12px !important' }}>
+        <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
+          <Typography variant="h6">
+            <HowToReg sx={{ mr: 1, verticalAlign: 'middle', fontSize: 20 }} />
+            Accusé de réception
+          </Typography>
+          {dejaLu ? (
+            <Chip
+              icon={<CheckCircle />}
+              label={`Lu v${maLecture.version_lue} — ${dayjs(maLecture.lu_at).format('DD/MM/YYYY')}`}
+              color="success"
+              size="small"
+            />
+          ) : luAncienneVersion ? (
+            <Chip label={`Lu v${maLecture.version_lue} — version actuelle v${version}`} color="warning" size="small" />
+          ) : (
+            <Chip label="Non lu" variant="outlined" size="small" />
+          )}
+        </Box>
+
+        {!dejaLu && (
+          <Button
+            variant={luAncienneVersion ? 'outlined' : 'contained'}
+            color="primary"
+            size="small"
+            startIcon={<HowToReg />}
+            onClick={() => mutation.mutate()}
+            disabled={mutation.isPending}
+            sx={{ mb: 1.5 }}
+          >
+            {luAncienneVersion ? `Confirmer lecture v${version}` : 'Marquer comme lu'}
+          </Button>
+        )}
+
+        <Box
+          display="flex"
+          alignItems="center"
+          gap={0.5}
+          sx={{ cursor: 'pointer', color: 'text.secondary', mt: 0.5 }}
+          onClick={() => setExpanded(e => !e)}
+        >
+          <PeopleAlt fontSize="small" />
+          <Typography variant="caption">
+            {data ? `${data.total} lecture${data.total > 1 ? 's' : ''} enregistrée${data.total > 1 ? 's' : ''}` : 'Voir qui a lu'}
+          </Typography>
+          {expanded ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
+        </Box>
+
+        <Collapse in={expanded}>
+          <Box mt={1}>
+            {isLoading ? (
+              <Skeleton variant="rectangular" height={60} />
+            ) : data && data.lectures.length > 0 ? (
+              <Table size="small">
+                <TableBody>
+                  {data.lectures.map((l: any) => (
+                    <TableRow key={l.id}>
+                      <TableCell sx={{ py: 0.5 }}>
+                        <Box display="flex" alignItems="center" gap={1}>
+                          <Avatar sx={{ width: 24, height: 24, fontSize: 11, bgcolor: 'primary.light' }}>
+                            {l.user.prenom[0]}{l.user.nom[0]}
+                          </Avatar>
+                          <Typography variant="body2">{l.user.prenom} {l.user.nom}</Typography>
+                        </Box>
+                      </TableCell>
+                      <TableCell sx={{ py: 0.5 }}>
+                        <Chip
+                          label={`v${l.version_lue}`}
+                          size="small"
+                          color={l.current_version ? 'success' : 'warning'}
+                          sx={{ fontSize: 10 }}
+                        />
+                      </TableCell>
+                      <TableCell sx={{ py: 0.5 }}>
+                        <Typography variant="caption" color="text.secondary">
+                          {dayjs(l.lu_at).format('DD/MM/YYYY HH:mm')}
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <Typography variant="caption" color="text.secondary">Aucune lecture enregistrée</Typography>
+            )}
+          </Box>
+        </Collapse>
+      </CardContent>
+    </Card>
+  );
+};
+
 // ─── Main Page ─────────────────────────────────────────────────────────────
 
 const DocumentDetailPage: React.FC = () => {
@@ -287,7 +467,7 @@ const DocumentDetailPage: React.FC = () => {
   const { data: doc, isLoading, error } = useDocument(Number(id));
 
   const handleRefresh = () => {
-    queryClient.invalidateQueries({ queryKey: ['document', Number(id)] });
+    queryClient.invalidateQueries({ queryKey: ['documents', Number(id)] });
   };
 
   if (isLoading) return <Box p={3}><Skeleton variant="rectangular" height={400} /></Box>;
@@ -296,10 +476,18 @@ const DocumentDetailPage: React.FC = () => {
   const docAny = doc as any;
   const historique: any[] = docAny.historique_versions || [];
 
+  // e-Doc metadata chips
+  const metaChips = [
+    docAny.type_document && { label: docAny.type_document.toUpperCase(), color: '#0779BF' },
+    docAny.numero_document && { label: docAny.numero_document, color: '#6B7280' },
+    docAny.periodicite_revision && { label: `Révision / ${docAny.periodicite_revision} mois`, color: '#F59E0B' },
+  ].filter(Boolean) as { label: string; color: string }[];
+
   return (
     <Box>
       <PageHeader
         title={doc.titre}
+        subtitle={docAny.numero_document ? `${docAny.type_document ?? ''} · ${docAny.numero_document}` : undefined}
         breadcrumbs={[
           { label: t('documents.title'), path: '/documents' },
           { label: doc.titre },
@@ -316,6 +504,9 @@ const DocumentDetailPage: React.FC = () => {
                 <Chip label={`v${doc.version}`} size="small" color="primary" />
                 {doc.theme && <Chip label={doc.theme} size="small" />}
                 {doc.classification && <Chip label={doc.classification} size="small" />}
+                {metaChips.map((c) => (
+                  <Chip key={c.label} label={c.label} size="small" sx={{ bgcolor: `${c.color}15`, color: c.color, fontWeight: 600 }} />
+                ))}
               </Box>
               <Grid container spacing={2}>
                 <Grid item xs={6}>
@@ -351,6 +542,9 @@ const DocumentDetailPage: React.FC = () => {
 
           {/* File attachment */}
           <FileCard doc={docAny} onRefresh={handleRefresh} />
+
+          {/* e-Document Control: Accusé de réception */}
+          <QuiALu docId={Number(id)} version={doc.version} maLecture={docAny.ma_lecture} />
 
           {/* Workflow */}
           <Card>

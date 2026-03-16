@@ -110,16 +110,27 @@ def _nc_full(nc: NonConformite) -> dict:
 async def list_ncs(
     statut: Optional[NCStatus] = None,
     type_nc: Optional[str] = None,
+    search: Optional[str] = None,
     skip: int = 0,
     limit: int = Query(default=50, le=200),
+    page: Optional[int] = None,
+    size: Optional[int] = None,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
+    if page is not None and size is not None:
+        skip = (page - 1) * size
+        limit = size
+    elif size is not None:
+        limit = size
+
     query = select(NonConformite).order_by(NonConformite.created_at.desc())
     if statut:
         query = query.where(NonConformite.statut == statut)
     if type_nc:
         query = query.where(NonConformite.type_nc == type_nc)
+    if search:
+        query = query.where(NonConformite.description.ilike(f"%{search}%"))
     count_result = await session.execute(
         select(func.count()).select_from(query.subquery())
     )

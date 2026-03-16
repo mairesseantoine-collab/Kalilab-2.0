@@ -9,7 +9,7 @@ from typing import Optional, List
 from pydantic import BaseModel
 
 from database.engine import get_session
-from database.models import User, UserRole, DocumentQualite, DocumentStatus, Signature
+from database.models import User, UserRole, DocumentQualite, DocumentStatus, Signature, LectureDocument
 from auth.dependencies import get_current_user, require_role, log_action, get_client_ip
 from services.storage_service import upload_file as storage_upload, get_file_url, delete_file as storage_delete
 
@@ -18,6 +18,9 @@ router = APIRouter()
 
 class DocumentCreate(BaseModel):
     titre: str
+    type_document: Optional[str] = None
+    numero_document: Optional[str] = None
+    periodicite_revision: Optional[int] = None
     theme: Optional[str] = None
     classification: Optional[str] = "interne"
     contenu: Optional[str] = None
@@ -28,6 +31,9 @@ class DocumentCreate(BaseModel):
 
 class DocumentUpdate(BaseModel):
     titre: Optional[str] = None
+    type_document: Optional[str] = None
+    numero_document: Optional[str] = None
+    periodicite_revision: Optional[int] = None
     theme: Optional[str] = None
     classification: Optional[str] = None
     contenu: Optional[str] = None
@@ -51,11 +57,22 @@ async def list_documents(
     theme: Optional[str] = None,
     statut: Optional[DocumentStatus] = None,
     auteur_id: Optional[int] = None,
+    search: Optional[str] = None,
     skip: int = 0,
     limit: int = Query(default=50, le=200),
+    # page-based aliases (1-indexed)
+    page: Optional[int] = None,
+    size: Optional[int] = None,
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
+    # Translate page/size → skip/limit
+    if page is not None and size is not None:
+        skip = (page - 1) * size
+        limit = size
+    elif size is not None:
+        limit = size
+
     query = select(DocumentQualite).where(
         DocumentQualite.statut != DocumentStatus.ARCHIVE
     )
@@ -65,6 +82,8 @@ async def list_documents(
         query = query.where(DocumentQualite.statut == statut)
     if auteur_id:
         query = query.where(DocumentQualite.auteur_id == auteur_id)
+    if search:
+        query = query.where(DocumentQualite.titre.ilike(f"%{search}%"))
     query = query.order_by(DocumentQualite.created_at.desc())
     count_result = await session.execute(
         select(func.count()).select_from(query.subquery())
@@ -72,6 +91,17 @@ async def list_documents(
     total = count_result.scalar() or 0
     result = await session.execute(query.offset(skip).limit(limit))
     docs = result.scalars().all()
+
+    # Load authors in one pass
+    author_ids = list({d.auteur_id for d in docs})
+    authors: dict = {}
+    if author_ids:
+        users_result = await session.execute(
+            select(User).where(User.id.in_(author_ids))
+        )
+        for u in users_result.scalars().all():
+            authors[u.id] = {"prenom": u.prenom, "nom": u.nom}
+
     return {
         "total": total,
         "skip": skip,
@@ -86,6 +116,8 @@ async def list_documents(
                 "statut": d.statut.value,
                 "version": d.version,
                 "auteur_id": d.auteur_id,
+                "auteur": authors.get(d.auteur_id),
+                "fichier_path": d.fichier_path,
                 "date_validite": d.date_validite,
                 "created_at": d.created_at,
                 "updated_at": d.updated_at,
@@ -104,6 +136,9 @@ async def create_document(
 ):
     doc = DocumentQualite(
         titre=data.titre,
+        type_document=data.type_document,
+        numero_document=data.numero_document,
+        periodicite_revision=data.periodicite_revision,
         theme=data.theme,
         classification=data.classification,
         contenu=data.contenu,
@@ -138,10 +173,25 @@ async def get_document(
     doc = await session.get(DocumentQualite, doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document introuvable")
+    # Load author
+    auteur = await session.get(User, doc.auteur_id)
+
+    # Load current user's lecture status
+    lecture_res = await session.execute(
+        select(LectureDocument).where(
+            LectureDocument.document_id == doc_id,
+            LectureDocument.user_id == current_user.id,
+        ).order_by(LectureDocument.lu_at.desc())
+    )
+    ma_lecture = lecture_res.scalars().first()
+
     return {
         "id": doc.id,
         "uuid": doc.uuid,
         "titre": doc.titre,
+        "type_document": doc.type_document,
+        "numero_document": doc.numero_document,
+        "periodicite_revision": doc.periodicite_revision,
         "theme": doc.theme,
         "classification": doc.classification,
         "statut": doc.statut.value,
@@ -149,12 +199,19 @@ async def get_document(
         "contenu": doc.contenu,
         "fichier_path": doc.fichier_path,
         "auteur_id": doc.auteur_id,
+        "auteur": {"prenom": auteur.prenom, "nom": auteur.nom} if auteur else None,
         "approbateurs": json.loads(doc.approbateurs or "[]"),
         "lecteurs_autorises": json.loads(doc.lecteurs_autorises or "[]"),
         "date_validite": doc.date_validite,
         "historique_versions": json.loads(doc.historique_versions or "[]"),
         "created_at": doc.created_at,
         "updated_at": doc.updated_at,
+        "ma_lecture": {
+            "lu": True,
+            "lu_at": ma_lecture.lu_at,
+            "version_lue": ma_lecture.version_lue,
+            "a_jour": ma_lecture.version_lue == doc.version,
+        } if ma_lecture else None,
     }
 
 
@@ -546,3 +603,71 @@ async def archive_document(
         ip_address=get_client_ip(request),
     )
     return {"detail": "Document archivé"}
+
+
+# ── e-Document Control: accusé de réception / lectures ─────────────────────
+
+@router.post("/{doc_id}/accuse-reception", status_code=status.HTTP_201_CREATED)
+async def accuse_reception(
+    doc_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Marquer un document comme lu (accusé de réception)."""
+    doc = await session.get(DocumentQualite, doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document introuvable")
+
+    # Upsert: si déjà lu pour cette version, mettre à jour la date
+    existing = await session.execute(
+        select(LectureDocument).where(
+            LectureDocument.document_id == doc_id,
+            LectureDocument.user_id == current_user.id,
+            LectureDocument.version_lue == doc.version,
+        )
+    )
+    lecture = existing.scalars().first()
+    if lecture:
+        lecture.lu_at = datetime.utcnow()
+    else:
+        lecture = LectureDocument(
+            document_id=doc_id,
+            user_id=current_user.id,
+            version_lue=doc.version,
+        )
+        session.add(lecture)
+    await session.commit()
+    return {"detail": "Accusé de réception enregistré", "version": doc.version}
+
+
+@router.get("/{doc_id}/lectures")
+async def get_lectures(
+    doc_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Qui a lu ce document (traçabilité ISO 15189)."""
+    doc = await session.get(DocumentQualite, doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document introuvable")
+
+    result = await session.execute(
+        select(LectureDocument, User)
+        .join(User, LectureDocument.user_id == User.id)
+        .where(LectureDocument.document_id == doc_id)
+        .order_by(LectureDocument.lu_at.desc())
+    )
+    rows = result.all()
+    return {
+        "total": len(rows),
+        "lectures": [
+            {
+                "id": lect.id,
+                "user": {"id": u.id, "prenom": u.prenom, "nom": u.nom, "role": u.role.value},
+                "version_lue": lect.version_lue,
+                "lu_at": lect.lu_at,
+                "current_version": lect.version_lue == doc.version,
+            }
+            for lect, u in rows
+        ],
+    }
