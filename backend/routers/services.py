@@ -9,15 +9,15 @@ PUT  /localisations/{id}     → modifier zone
 DELETE /localisations/{id}   → désactiver zone
 """
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlmodel import Session, select
-from sqlalchemy import func
-from typing import Optional, List
+from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy import select
+from typing import Optional
 from datetime import datetime
 from pydantic import BaseModel
 
-from database.db import get_session
-from database.models import Service, Localisation, User
-from routers.auth import get_current_user, require_admin
+from database.engine import get_session
+from database.models import Service, Localisation, User, UserRole
+from auth.dependencies import get_current_user, require_role
 
 router = APIRouter()
 
@@ -71,7 +71,6 @@ def _build_tree(localisations: list) -> list:
         else:
             roots.append(node)
 
-    # Trier par ordre
     def sort_tree(nodes):
         nodes.sort(key=lambda n: n["ordre"])
         for n in nodes:
@@ -101,7 +100,7 @@ def _serialize_service(service: Service, zones: list) -> dict:
 async def list_services(
     site: Optional[str] = None,
     actif: Optional[bool] = None,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
     """Liste tous les services avec leurs zones imbriquées."""
@@ -111,27 +110,30 @@ async def list_services(
     if actif is not None:
         q = q.where(Service.actif == actif)
     q = q.order_by(Service.ordre, Service.nom)
-    services = session.exec(q).all()
+    result = await session.execute(q)
+    services = result.scalars().all()
 
-    result = []
+    output = []
     for svc in services:
-        zones = session.exec(
+        zones_result = await session.execute(
             select(Localisation)
             .where(Localisation.service_id == svc.id)
             .order_by(Localisation.ordre, Localisation.nom)
-        ).all()
-        result.append(_serialize_service(svc, zones))
+        )
+        zones = zones_result.scalars().all()
+        output.append(_serialize_service(svc, zones))
 
-    return result
+    return output
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_service(
     data: ServiceCreate,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
 ):
-    existing = session.exec(select(Service).where(Service.label == data.label.upper())).first()
+    result = await session.execute(select(Service).where(Service.label == data.label.upper()))
+    existing = result.scalar_one_or_none()
     if existing:
         raise HTTPException(400, f"Service avec le label '{data.label}' existe déjà")
 
@@ -142,8 +144,8 @@ async def create_service(
         ordre=data.ordre,
     )
     session.add(svc)
-    session.commit()
-    session.refresh(svc)
+    await session.commit()
+    await session.refresh(svc)
     return _serialize_service(svc, [])
 
 
@@ -151,35 +153,38 @@ async def create_service(
 async def update_service(
     service_id: int,
     data: ServiceUpdate,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
 ):
-    svc = session.get(Service, service_id)
+    svc = await session.get(Service, service_id)
     if not svc:
         raise HTTPException(404, "Service introuvable")
 
     for field, val in data.model_dump(exclude_none=True).items():
         setattr(svc, field, val)
     session.add(svc)
-    session.commit()
-    session.refresh(svc)
+    await session.commit()
+    await session.refresh(svc)
 
-    zones = session.exec(select(Localisation).where(Localisation.service_id == svc.id)).all()
+    zones_result = await session.execute(
+        select(Localisation).where(Localisation.service_id == svc.id)
+    )
+    zones = zones_result.scalars().all()
     return _serialize_service(svc, zones)
 
 
 @router.delete("/{service_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def deactivate_service(
     service_id: int,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
 ):
-    svc = session.get(Service, service_id)
+    svc = await session.get(Service, service_id)
     if not svc:
         raise HTTPException(404, "Service introuvable")
     svc.actif = False
     session.add(svc)
-    session.commit()
+    await session.commit()
 
 
 # ── Endpoints localisations ───────────────────────────────────────────────────
@@ -188,16 +193,15 @@ async def deactivate_service(
 async def add_localisation(
     service_id: int,
     data: LocalisationCreate,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    svc = session.get(Service, service_id)
+    svc = await session.get(Service, service_id)
     if not svc:
         raise HTTPException(404, "Service introuvable")
 
-    # Vérifier parent_id si fourni
     if data.parent_id:
-        parent = session.get(Localisation, data.parent_id)
+        parent = await session.get(Localisation, data.parent_id)
         if not parent or parent.service_id != service_id:
             raise HTTPException(400, "Zone parente invalide")
 
@@ -208,8 +212,8 @@ async def add_localisation(
         ordre=data.ordre,
     )
     session.add(loc)
-    session.commit()
-    session.refresh(loc)
+    await session.commit()
+    await session.refresh(loc)
     return {
         "id": loc.id, "service_id": loc.service_id,
         "parent_id": loc.parent_id, "nom": loc.nom,
@@ -221,18 +225,18 @@ async def add_localisation(
 async def update_localisation(
     loc_id: int,
     data: LocalisationUpdate,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    loc = session.get(Localisation, loc_id)
+    loc = await session.get(Localisation, loc_id)
     if not loc:
         raise HTTPException(404, "Zone introuvable")
 
     for field, val in data.model_dump(exclude_none=True).items():
         setattr(loc, field, val)
     session.add(loc)
-    session.commit()
-    session.refresh(loc)
+    await session.commit()
+    await session.refresh(loc)
     return {"id": loc.id, "service_id": loc.service_id, "parent_id": loc.parent_id,
             "nom": loc.nom, "ordre": loc.ordre, "actif": loc.actif}
 
@@ -240,17 +244,19 @@ async def update_localisation(
 @router.delete("/localisations/{loc_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def deactivate_localisation(
     loc_id: int,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    loc = session.get(Localisation, loc_id)
+    loc = await session.get(Localisation, loc_id)
     if not loc:
         raise HTTPException(404, "Zone introuvable")
     loc.actif = False
-    # Désactiver aussi les enfants
-    enfants = session.exec(select(Localisation).where(Localisation.parent_id == loc_id)).all()
+    enfants_result = await session.execute(
+        select(Localisation).where(Localisation.parent_id == loc_id)
+    )
+    enfants = enfants_result.scalars().all()
     for e in enfants:
         e.actif = False
         session.add(e)
     session.add(loc)
-    session.commit()
+    await session.commit()

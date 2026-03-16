@@ -22,6 +22,7 @@ from database.models import (
     Plainte, ComplaintStatus,
     Action,
     AuditLog,
+    Service, Localisation,
 )
 import os
 from dotenv import load_dotenv
@@ -484,8 +485,36 @@ async def seed():
         await session.commit()
         print("[OK] 3 audit log entries created")
 
+        # ------------------------------------------------------------------ #
+        # ARBORESCENCE (Services & Localisations)                           #
+        # ------------------------------------------------------------------ #
+        from seed_arborescence import ARBORESCENCE
+        from sqlalchemy import select as sa_select
+        existing_svc = await session.execute(sa_select(Service))
+        if existing_svc.scalars().first() is None:
+            total_services = 0
+            total_zones = 0
+            for ordre, label, nom, site, zones in ARBORESCENCE:
+                svc = Service(label=label, nom=nom, site=site, ordre=ordre)
+                session.add(svc)
+                await session.flush()
+                total_services += 1
+                for zone_idx, zone_def in enumerate(zones):
+                    zone_nom, sous_zones = zone_def if isinstance(zone_def, tuple) else (zone_def, [])
+                    z = Localisation(service_id=svc.id, nom=zone_nom, ordre=zone_idx)
+                    session.add(z)
+                    await session.flush()
+                    total_zones += 1
+                    for i, sz_nom in enumerate(sous_zones):
+                        sz = Localisation(service_id=svc.id, parent_id=z.id, nom=sz_nom, ordre=i)
+                        session.add(sz)
+                        total_zones += 1
+            await session.commit()
+            print(f"[OK] Arborescence créée : {total_services} services, {total_zones} zones")
+        else:
+            print("[OK] Arborescence déjà présente — ignorée")
+
         print("\n=== SEED COMPLETE ===")
-        print("Credentials:")
         for key, (prenom, nom, email, pwd, role) in zip(keys, user_data):
             print(f"  {role.value:25s}  {email:35s}  {pwd}")
 
