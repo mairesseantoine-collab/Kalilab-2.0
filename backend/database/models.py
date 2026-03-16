@@ -396,10 +396,12 @@ class Qualification(SQLModel, table=True):
     duree_heures: Optional[float] = None
     description: Optional[str] = Field(default=None, sa_column=Column(Text))
     reevaluation: bool = Field(default=False)
+    validite_mois: Optional[int] = None                   # validity period in months (used when reevaluation=True)
     responsable_id: Optional[int] = Field(default=None, foreign_key="users.id")
     sites: Optional[str] = Field(default=None)            # JSON: ["STE","STM"]
     fonctions_concernees: Optional[str] = Field(default=None, sa_column=Column(Text))  # JSON list
-    personnel_concerne: Optional[str] = Field(default=None, sa_column=Column(Text))    # JSON list
+    personnel_concerne: Optional[str] = Field(default=None, sa_column=Column(Text))    # JSON list of PersonnelRH IDs
+    criteres_evaluation: Optional[str] = Field(default=None, sa_column=Column(Text))   # JSON: [{descriptif, obligatoire}]
     docs_admin: Optional[str] = Field(default=None, sa_column=Column(Text))   # JSON [doc_id,...]
     fichiers_admin: Optional[str] = Field(default=None, sa_column=Column(Text))        # JSON [path,...]
     docs_user: Optional[str] = Field(default=None, sa_column=Column(Text))
@@ -513,6 +515,31 @@ class ProcedureMammouth(SQLModel, table=True):
     document_id: Optional[int] = Field(default=None, foreign_key="documents_qualite.id", index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class PersonnelRH(SQLModel, table=True):
+    """Registre du personnel du laboratoire (indépendant des comptes utilisateurs)."""
+    __tablename__ = "personnel_rh"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    nom: str = Field(index=True)
+    prenom: str
+    telephone: Optional[str] = None
+    site: str = Field(default="STE", index=True)   # STE, STM, both
+    fonction: str = Field(index=True)
+    actif: bool = Field(default=True, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class HabilitationPersonnel(SQLModel, table=True):
+    """Enregistrement d'une habilitation individuelle (personnel × qualification)."""
+    __tablename__ = "habilitations_personnel"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    personnel_id: int = Field(foreign_key="personnel_rh.id", index=True)
+    qualification_id: int = Field(foreign_key="qualifications.id", index=True)
+    date_habilitation: date
+    date_echeance: Optional[date] = None   # calculated from qualification.validite_mois
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class Message(SQLModel, table=True):

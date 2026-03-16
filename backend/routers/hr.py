@@ -1,16 +1,22 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy import select
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional, List
 from pydantic import BaseModel
+import json as _json
 
 from database.engine import get_session
-from database.models import User, UserRole, Competence, Formation, PlanningRH, Qualification
+from database.models import (
+    User, UserRole, Competence, Formation, PlanningRH, Qualification,
+    PersonnelRH, HabilitationPersonnel,
+)
 from auth.dependencies import get_current_user, require_role, log_action, get_client_ip
 
 router = APIRouter()
 
+
+# ── Competences ───────────────────────────────────────────────────────────────
 
 class CompetenceCreate(BaseModel):
     user_id: int
@@ -102,6 +108,8 @@ async def create_competence(
     return {"id": comp.id, "intitule": comp.intitule, "niveau": comp.niveau}
 
 
+# ── Formations ────────────────────────────────────────────────────────────────
+
 @router.get("/formations")
 async def list_formations(
     session: AsyncSession = Depends(get_session),
@@ -109,7 +117,6 @@ async def list_formations(
 ):
     result = await session.execute(select(Formation).order_by(Formation.date_debut.desc()))
     formations = result.scalars().all()
-    import json
     return [
         {
             "id": f.id,
@@ -118,7 +125,7 @@ async def list_formations(
             "date_fin": f.date_fin,
             "formateur": f.formateur,
             "statut": f.statut,
-            "participants": json.loads(f.participants or "[]"),
+            "participants": _json.loads(f.participants or "[]"),
             "validite_mois": f.validite_mois,
             "created_at": f.created_at,
         }
@@ -133,14 +140,13 @@ async def create_formation(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.QUALITICIEN, UserRole.RESP_TECHNIQUE)),
 ):
-    import json
     formation = Formation(
         titre=data.titre,
         description=data.description,
         date_debut=data.date_debut,
         date_fin=data.date_fin,
         formateur=data.formateur,
-        participants=json.dumps(data.participants or []),
+        participants=_json.dumps(data.participants or []),
         validite_mois=data.validite_mois,
     )
     session.add(formation)
@@ -166,14 +172,13 @@ async def update_formation(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.QUALITICIEN, UserRole.RESP_TECHNIQUE)),
 ):
-    import json
     formation = await session.get(Formation, formation_id)
     if not formation:
         raise HTTPException(status_code=404, detail="Formation introuvable")
     update_data = data.dict(exclude_unset=True)
     for key, value in update_data.items():
         if key == "evaluations" and value is not None:
-            setattr(formation, key, json.dumps(value))
+            setattr(formation, key, _json.dumps(value))
         else:
             setattr(formation, key, value)
     session.add(formation)
@@ -190,6 +195,8 @@ async def update_formation(
     )
     return {"id": formation.id, "statut": formation.statut}
 
+
+# ── Planning ──────────────────────────────────────────────────────────────────
 
 @router.get("/planning")
 async def get_planning(
@@ -245,26 +252,34 @@ async def create_planning(
     return {"id": planning.id}
 
 
+# ── Competence matrix ─────────────────────────────────────────────────────────
+
 @router.get("/matrix")
 async def competence_matrix(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.QUALITICIEN, UserRole.RESP_TECHNIQUE)),
 ):
-    users_result = await session.execute(select(User).where(User.is_active == True))
+    users_result = await session.execute(select(User).where(User.is_active == True).order_by(User.nom))
     users = users_result.scalars().all()
     comps_result = await session.execute(select(Competence))
     comps = comps_result.scalars().all()
 
-    # Group competences by user
-    comp_by_user = {}
+    today = date.today()
+    soon = today + timedelta(days=60)
+
+    comp_by_user: dict = {}
     for c in comps:
         if c.user_id not in comp_by_user:
             comp_by_user[c.user_id] = []
+        expired = c.date_validite is not None and c.date_validite < today
+        expiring_soon = c.date_validite is not None and not expired and c.date_validite <= soon
         comp_by_user[c.user_id].append({
+            "id": c.id,
             "intitule": c.intitule,
             "niveau": c.niveau,
             "date_validite": c.date_validite,
-            "expired": c.date_validite is not None and c.date_validite < date.today(),
+            "expired": expired,
+            "expiring_soon": expiring_soon,
         })
 
     return {
@@ -280,20 +295,316 @@ async def competence_matrix(
     }
 
 
+# ── Habilitation matrix ───────────────────────────────────────────────────────
+
+@router.get("/matrix/habilitations")
+async def habilitation_matrix(
+    site: Optional[str] = None,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Matrice croisée Personnel × Qualifications avec statuts d'habilitation."""
+    # Load personnel
+    p_query = select(PersonnelRH).where(PersonnelRH.actif == True).order_by(PersonnelRH.nom)
+    if site:
+        p_query = p_query.where(PersonnelRH.site.in_([site, "both"]))
+    p_result = await session.execute(p_query)
+    personnel = p_result.scalars().all()
+
+    # Load qualifications
+    q_result = await session.execute(select(Qualification).order_by(Qualification.libelle))
+    qualifications = q_result.scalars().all()
+
+    # Filter qualifications by site
+    if site:
+        qualifications = [q for q in qualifications if site in _json.loads(q.sites or "[]")]
+
+    # Load all habilitations
+    h_result = await session.execute(select(HabilitationPersonnel))
+    habilitations = h_result.scalars().all()
+
+    today = date.today()
+    soon = today + timedelta(days=60)
+
+    # Build lookup: (personnel_id, qualification_id) → habilitation
+    hab_map: dict = {}
+    for h in habilitations:
+        hab_map[(h.personnel_id, h.qualification_id)] = h
+
+    # Build qual validity map
+    qual_validity: dict = {q.id: q.validite_mois for q in qualifications}
+
+    # Build habilitation status list
+    hab_status = []
+    for p in personnel:
+        for q in qualifications:
+            # Only include if person is in personnel_concerne
+            pc = _json.loads(q.personnel_concerne or "[]")
+            if p.id not in pc:
+                continue
+            h = hab_map.get((p.id, q.id))
+            if h:
+                expired = h.date_echeance is not None and h.date_echeance < today
+                expiring_soon = h.date_echeance is not None and not expired and h.date_echeance <= soon
+                if expired:
+                    st = "expired"
+                elif expiring_soon:
+                    st = "expiring_soon"
+                else:
+                    st = "valid"
+                hab_status.append({
+                    "personnel_id": p.id,
+                    "qualification_id": q.id,
+                    "habilitation_id": h.id,
+                    "date_habilitation": h.date_habilitation,
+                    "date_echeance": h.date_echeance,
+                    "status": st,
+                })
+            else:
+                hab_status.append({
+                    "personnel_id": p.id,
+                    "qualification_id": q.id,
+                    "habilitation_id": None,
+                    "date_habilitation": None,
+                    "date_echeance": None,
+                    "status": "not_habilitated",
+                })
+
+    return {
+        "personnel": [
+            {"id": p.id, "nom": p.nom, "prenom": p.prenom, "fonction": p.fonction, "site": p.site}
+            for p in personnel
+        ],
+        "qualifications": [
+            {"id": q.id, "libelle": q.libelle, "validite_mois": q.validite_mois, "reevaluation": q.reevaluation}
+            for q in qualifications
+        ],
+        "habilitations": hab_status,
+    }
+
+
+# ── Biologistes (for responsable selector) ────────────────────────────────────
+
+@router.get("/biologistes")
+async def list_biologistes(
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    result = await session.execute(
+        select(User)
+        .where(User.role == UserRole.BIOLOGISTE, User.is_active == True)
+        .order_by(User.nom)
+    )
+    users = result.scalars().all()
+    return [{"id": u.id, "label": f"{u.prenom} {u.nom}"} for u in users]
+
+
+# ── PersonnelRH CRUD ──────────────────────────────────────────────────────────
+
+class PersonnelRHCreate(BaseModel):
+    nom: str
+    prenom: str
+    telephone: Optional[str] = None
+    site: str = "STE"
+    fonction: str
+
+
+class PersonnelRHUpdate(BaseModel):
+    nom: Optional[str] = None
+    prenom: Optional[str] = None
+    telephone: Optional[str] = None
+    site: Optional[str] = None
+    fonction: Optional[str] = None
+    actif: Optional[bool] = None
+
+
+def _p_to_dict(p: PersonnelRH) -> dict:
+    return {
+        "id": p.id,
+        "nom": p.nom,
+        "prenom": p.prenom,
+        "telephone": p.telephone,
+        "site": p.site,
+        "fonction": p.fonction,
+        "actif": p.actif,
+        "label": f"{p.prenom} {p.nom}",
+        "created_at": p.created_at,
+        "updated_at": p.updated_at,
+    }
+
+
+@router.get("/personnel-rh")
+async def list_personnel_rh(
+    site: Optional[str] = None,
+    actif: Optional[bool] = None,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    query = select(PersonnelRH).order_by(PersonnelRH.nom, PersonnelRH.prenom)
+    if site:
+        query = query.where(PersonnelRH.site.in_([site, "both"]))
+    if actif is not None:
+        query = query.where(PersonnelRH.actif == actif)
+    result = await session.execute(query)
+    return [_p_to_dict(p) for p in result.scalars().all()]
+
+
+@router.post("/personnel-rh", status_code=status.HTTP_201_CREATED)
+async def create_personnel_rh(
+    request: Request,
+    data: PersonnelRHCreate,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.QUALITICIEN, UserRole.RESP_TECHNIQUE)),
+):
+    p = PersonnelRH(
+        nom=data.nom,
+        prenom=data.prenom,
+        telephone=data.telephone,
+        site=data.site,
+        fonction=data.fonction,
+    )
+    session.add(p)
+    await session.commit()
+    await session.refresh(p)
+    await log_action(session, user_id=current_user.id, action="CREATE",
+                     resource_type="personnel_rh", resource_id=str(p.id),
+                     details=f"Personnel créé: {p.prenom} {p.nom}",
+                     ip_address=get_client_ip(request))
+    return _p_to_dict(p)
+
+
+@router.put("/personnel-rh/{personnel_id}")
+async def update_personnel_rh(
+    request: Request,
+    personnel_id: int,
+    data: PersonnelRHUpdate,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.QUALITICIEN, UserRole.RESP_TECHNIQUE)),
+):
+    p = await session.get(PersonnelRH, personnel_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Personnel introuvable")
+    for key, value in data.dict(exclude_unset=True).items():
+        setattr(p, key, value)
+    p.updated_at = datetime.utcnow()
+    session.add(p)
+    await session.commit()
+    await session.refresh(p)
+    await log_action(session, user_id=current_user.id, action="UPDATE",
+                     resource_type="personnel_rh", resource_id=str(p.id),
+                     details=f"Personnel mis à jour: {p.prenom} {p.nom}",
+                     ip_address=get_client_ip(request))
+    return _p_to_dict(p)
+
+
+@router.delete("/personnel-rh/{personnel_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_personnel_rh(
+    request: Request,
+    personnel_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.QUALITICIEN)),
+):
+    p = await session.get(PersonnelRH, personnel_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Personnel introuvable")
+    await session.delete(p)
+    await session.commit()
+    await log_action(session, user_id=current_user.id, action="DELETE",
+                     resource_type="personnel_rh", resource_id=str(personnel_id),
+                     details=f"Personnel supprimé: {p.prenom} {p.nom}",
+                     ip_address=get_client_ip(request))
+
+
+# ── HabilitationPersonnel CRUD ────────────────────────────────────────────────
+
+class HabilitationCreate(BaseModel):
+    personnel_id: int
+    qualification_id: int
+    date_habilitation: date
+    date_echeance: Optional[date] = None
+
+
+@router.post("/habilitations", status_code=status.HTTP_201_CREATED)
+async def create_habilitation(
+    request: Request,
+    data: HabilitationCreate,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.QUALITICIEN, UserRole.RESP_TECHNIQUE)),
+):
+    # Upsert: remove existing habilitation for same (personnel, qualification)
+    existing = await session.execute(
+        select(HabilitationPersonnel)
+        .where(HabilitationPersonnel.personnel_id == data.personnel_id)
+        .where(HabilitationPersonnel.qualification_id == data.qualification_id)
+    )
+    existing_row = existing.scalar_one_or_none()
+    if existing_row:
+        await session.delete(existing_row)
+
+    # Auto-calculate date_echeance from qualification.validite_mois if not provided
+    date_echeance = data.date_echeance
+    if date_echeance is None:
+        qual = await session.get(Qualification, data.qualification_id)
+        if qual and qual.validite_mois:
+            from dateutil.relativedelta import relativedelta
+            try:
+                date_echeance = data.date_habilitation + relativedelta(months=qual.validite_mois)
+            except Exception:
+                pass
+
+    h = HabilitationPersonnel(
+        personnel_id=data.personnel_id,
+        qualification_id=data.qualification_id,
+        date_habilitation=data.date_habilitation,
+        date_echeance=date_echeance,
+    )
+    session.add(h)
+    await session.commit()
+    await session.refresh(h)
+    await log_action(session, user_id=current_user.id, action="CREATE",
+                     resource_type="habilitation", resource_id=str(h.id),
+                     details=f"Habilitation créée: personnel {data.personnel_id} × qual {data.qualification_id}",
+                     ip_address=get_client_ip(request))
+    return {
+        "id": h.id,
+        "personnel_id": h.personnel_id,
+        "qualification_id": h.qualification_id,
+        "date_habilitation": h.date_habilitation,
+        "date_echeance": h.date_echeance,
+    }
+
+
+@router.delete("/habilitations/{hab_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_habilitation(
+    request: Request,
+    hab_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.QUALITICIEN)),
+):
+    h = await session.get(HabilitationPersonnel, hab_id)
+    if not h:
+        raise HTTPException(status_code=404, detail="Habilitation introuvable")
+    await session.delete(h)
+    await session.commit()
+    await log_action(session, user_id=current_user.id, action="DELETE",
+                     resource_type="habilitation", resource_id=str(hab_id),
+                     details=f"Habilitation supprimée",
+                     ip_address=get_client_ip(request))
+
+
 # ── Qualifications ────────────────────────────────────────────────────────────
-
-import json as _json
-
 
 class QualificationCreate(BaseModel):
     libelle: str
     duree_heures: Optional[float] = None
     description: Optional[str] = None
     reevaluation: bool = False
+    validite_mois: Optional[int] = None
     responsable_id: Optional[int] = None
     sites: Optional[List[str]] = None
     fonctions_concernees: Optional[List[str]] = None
-    personnel_concerne: Optional[List[str]] = None
+    personnel_concerne: Optional[List[int]] = None
+    criteres_evaluation: Optional[List[dict]] = None
 
 
 class QualificationUpdate(BaseModel):
@@ -301,26 +612,37 @@ class QualificationUpdate(BaseModel):
     duree_heures: Optional[float] = None
     description: Optional[str] = None
     reevaluation: Optional[bool] = None
+    validite_mois: Optional[int] = None
     responsable_id: Optional[int] = None
     sites: Optional[List[str]] = None
     fonctions_concernees: Optional[List[str]] = None
-    personnel_concerne: Optional[List[str]] = None
+    personnel_concerne: Optional[List[int]] = None
+    criteres_evaluation: Optional[List[dict]] = None
     docs_admin: Optional[List[int]] = None
     docs_user: Optional[List[int]] = None
 
 
-def _q_to_dict(q: Qualification, responsable: Optional[User] = None) -> dict:
+def _q_to_dict(q: Qualification, responsable: Optional[User] = None,
+               personnel_noms: Optional[dict] = None) -> dict:
+    pc_ids = _json.loads(q.personnel_concerne or "[]")
+    if personnel_noms:
+        pc_noms = [personnel_noms.get(pid, f"#{pid}") for pid in pc_ids]
+    else:
+        pc_noms = [str(pid) for pid in pc_ids]
     return {
         "id": q.id,
         "libelle": q.libelle,
         "duree_heures": q.duree_heures,
         "description": q.description,
         "reevaluation": q.reevaluation,
+        "validite_mois": q.validite_mois,
         "responsable_id": q.responsable_id,
         "responsable_nom": f"{responsable.prenom} {responsable.nom}" if responsable else None,
         "sites": _json.loads(q.sites or "[]"),
         "fonctions_concernees": _json.loads(q.fonctions_concernees or "[]"),
-        "personnel_concerne": _json.loads(q.personnel_concerne or "[]"),
+        "personnel_concerne": pc_ids,
+        "personnel_concerne_noms": pc_noms,
+        "criteres_evaluation": _json.loads(q.criteres_evaluation or "[]"),
         "docs_admin": _json.loads(q.docs_admin or "[]"),
         "fichiers_admin": _json.loads(q.fichiers_admin or "[]"),
         "docs_user": _json.loads(q.docs_user or "[]"),
@@ -339,14 +661,29 @@ async def list_qualifications(
     query = select(Qualification).order_by(Qualification.libelle)
     result = await session.execute(query)
     quals = result.scalars().all()
-    # Load responsables in one pass
+
+    # Load responsables
     resp_ids = list({q.responsable_id for q in quals if q.responsable_id})
     responsables: dict = {}
     if resp_ids:
         r2 = await session.execute(select(User).where(User.id.in_(resp_ids)))
         for u in r2.scalars().all():
             responsables[u.id] = u
-    out = [_q_to_dict(q, responsables.get(q.responsable_id)) for q in quals]
+
+    # Load personnel names
+    all_pc_ids: set = set()
+    for q in quals:
+        for pid in _json.loads(q.personnel_concerne or "[]"):
+            all_pc_ids.add(pid)
+    personnel_noms: dict = {}
+    if all_pc_ids:
+        p_result = await session.execute(
+            select(PersonnelRH).where(PersonnelRH.id.in_(list(all_pc_ids)))
+        )
+        for p in p_result.scalars().all():
+            personnel_noms[p.id] = f"{p.prenom} {p.nom}"
+
+    out = [_q_to_dict(q, responsables.get(q.responsable_id), personnel_noms) for q in quals]
     if site:
         out = [q for q in out if site in q["sites"]]
     return out
@@ -364,10 +701,12 @@ async def create_qualification(
         duree_heures=data.duree_heures,
         description=data.description,
         reevaluation=data.reevaluation,
+        validite_mois=data.validite_mois,
         responsable_id=data.responsable_id,
         sites=_json.dumps(data.sites or []),
         fonctions_concernees=_json.dumps(data.fonctions_concernees or []),
         personnel_concerne=_json.dumps(data.personnel_concerne or []),
+        criteres_evaluation=_json.dumps(data.criteres_evaluation or []),
     )
     session.add(qual)
     await session.commit()
@@ -391,7 +730,8 @@ async def update_qualification(
     if not qual:
         raise HTTPException(status_code=404, detail="Qualification introuvable")
     update_data = data.dict(exclude_unset=True)
-    json_fields = {"sites", "fonctions_concernees", "personnel_concerne", "docs_admin", "docs_user"}
+    json_fields = {"sites", "fonctions_concernees", "personnel_concerne",
+                   "docs_admin", "docs_user", "criteres_evaluation"}
     for key, value in update_data.items():
         if key in json_fields and value is not None:
             setattr(qual, key, _json.dumps(value))
