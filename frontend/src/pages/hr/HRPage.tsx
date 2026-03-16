@@ -5,13 +5,15 @@ import {
   Table, TableHead, TableRow, TableCell, TableBody, Chip, Dialog,
   DialogTitle, DialogContent, DialogActions, TextField, Select, MenuItem,
   FormControl, InputLabel, CircularProgress, Alert, Snackbar, Tooltip,
-  Paper, Stack, Divider, alpha, useTheme,
+  Paper, Stack, Divider, alpha, useTheme, IconButton, Switch, FormControlLabel,
+  Autocomplete, Checkbox, ListItemText, OutlinedInput, FormHelperText,
 } from '@mui/material'
 import {
   Add as AddIcon, School, Star, CheckCircle, Schedule,
-  Groups, EmojiEvents,
+  Groups, EmojiEvents, WorkspacePremium, Edit as EditIcon,
+  Delete as DeleteIcon, NotificationsActive, Refresh,
 } from '@mui/icons-material'
-import { hrApi } from '../../api/hr'
+import { hrApi, Qualification } from '../../api/hr'
 import PageHeader from '../../components/common/PageHeader'
 import LoadingSpinner from '../../components/common/LoadingSpinner'
 import dayjs from 'dayjs'
@@ -31,6 +33,195 @@ const FORMATION_TYPE_COLORS: Record<string, string> = {
   habilitation: '#10b981',
 }
 
+const FONCTIONS = [
+  'Aide-laborantin/Secrétaire [E]',
+  'Aide-laborantin/Secrétaire [M]',
+  'Infirmier [E]',
+  'Infirmier [M]',
+]
+
+const EMPTY_QUAL: Partial<Qualification> = {
+  libelle: '',
+  duree_heures: null,
+  description: '',
+  reevaluation: false,
+  responsable_id: null,
+  sites: [],
+  fonctions_concernees: [],
+  personnel_concerne: [],
+}
+
+// ── Qualification dialog ──────────────────────────────────────────────────────
+
+interface QualDialogProps {
+  open: boolean
+  initial: Partial<Qualification> | null
+  onClose: () => void
+  onSave: (data: Partial<Qualification>) => void
+  loading: boolean
+}
+
+const QualDialog: React.FC<QualDialogProps> = ({ open, initial, onClose, onSave, loading }) => {
+  const [form, setForm] = useState<Partial<Qualification>>(initial ?? EMPTY_QUAL)
+
+  React.useEffect(() => {
+    setForm(initial ?? EMPTY_QUAL)
+  }, [initial, open])
+
+  const set = (key: keyof Qualification, value: unknown) =>
+    setForm(f => ({ ...f, [key]: value }))
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+      <DialogTitle>
+        <Stack direction="row" alignItems="center" spacing={1}>
+          <WorkspacePremium color="primary" />
+          <Typography variant="h6">
+            {initial?.id ? 'Modifier la qualification' : 'Nouvelle qualification'}
+          </Typography>
+        </Stack>
+      </DialogTitle>
+      <Divider />
+      <DialogContent>
+        <Grid container spacing={2} sx={{ mt: 0.5 }}>
+          {/* Libellé */}
+          <Grid item xs={12}>
+            <TextField
+              label="Libellé *"
+              fullWidth
+              value={form.libelle ?? ''}
+              onChange={e => set('libelle', e.target.value)}
+            />
+          </Grid>
+
+          {/* Durée + Ré-évaluation */}
+          <Grid item xs={12} sm={4}>
+            <TextField
+              label="Durée (heures)"
+              type="number"
+              fullWidth
+              value={form.duree_heures ?? ''}
+              onChange={e => set('duree_heures', e.target.value ? Number(e.target.value) : null)}
+              inputProps={{ min: 0, step: 0.5 }}
+            />
+          </Grid>
+          <Grid item xs={12} sm={4} display="flex" alignItems="center">
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={!!form.reevaluation}
+                  onChange={e => set('reevaluation', e.target.checked)}
+                  color="warning"
+                />
+              }
+              label="Ré-évaluation requise"
+            />
+          </Grid>
+
+          {/* Sites */}
+          <Grid item xs={12} sm={4}>
+            <FormControl fullWidth>
+              <InputLabel>Sites concernés</InputLabel>
+              <Select
+                multiple
+                value={form.sites ?? []}
+                onChange={e => set('sites', e.target.value)}
+                input={<OutlinedInput label="Sites concernés" />}
+                renderValue={(sel: string[]) => sel.map(s => s === 'STE' ? 'E — STE' : 'M — STM').join(', ')}
+              >
+                <MenuItem value="STE">
+                  <Checkbox checked={(form.sites ?? []).includes('STE')} />
+                  <ListItemText primary="E — STE" />
+                </MenuItem>
+                <MenuItem value="STM">
+                  <Checkbox checked={(form.sites ?? []).includes('STM')} />
+                  <ListItemText primary="M — STM" />
+                </MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+
+          {/* Description */}
+          <Grid item xs={12}>
+            <TextField
+              label="Description"
+              multiline
+              rows={3}
+              fullWidth
+              value={form.description ?? ''}
+              onChange={e => set('description', e.target.value)}
+              placeholder="Objectifs, contenu, modalités d'évaluation…"
+            />
+          </Grid>
+
+          {/* Fonctions concernées */}
+          <Grid item xs={12}>
+            <FormControl fullWidth>
+              <InputLabel>Fonctions concernées</InputLabel>
+              <Select
+                multiple
+                value={form.fonctions_concernees ?? []}
+                onChange={e => set('fonctions_concernees', e.target.value)}
+                input={<OutlinedInput label="Fonctions concernées" />}
+                renderValue={(sel: string[]) => sel.join(', ')}
+              >
+                {FONCTIONS.map(fn => (
+                  <MenuItem key={fn} value={fn}>
+                    <Checkbox checked={(form.fonctions_concernees ?? []).includes(fn)} />
+                    <ListItemText primary={fn} />
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+
+          {/* Personnel concerné (tags libres) */}
+          <Grid item xs={12}>
+            <Autocomplete
+              multiple
+              freeSolo
+              options={[]}
+              value={form.personnel_concerne ?? []}
+              onChange={(_, val) => set('personnel_concerne', val)}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Personnel concerné"
+                  helperText="Entrez un nom ou identifiant et appuyez sur Entrée"
+                />
+              )}
+              renderTags={(value, getTagProps) =>
+                value.map((option, index) => (
+                  <Chip
+                    variant="outlined"
+                    label={option}
+                    size="small"
+                    {...getTagProps({ index })}
+                    key={option}
+                  />
+                ))
+              }
+            />
+          </Grid>
+        </Grid>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onClose} disabled={loading}>Annuler</Button>
+        <Button
+          variant="contained"
+          onClick={() => onSave(form)}
+          disabled={!form.libelle || loading}
+          startIcon={loading ? <CircularProgress size={18} /> : undefined}
+        >
+          {initial?.id ? 'Enregistrer' : 'Créer'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  )
+}
+
+// ── Main HRPage ───────────────────────────────────────────────────────────────
+
 const HRPage: React.FC = () => {
   const theme = useTheme()
   const queryClient = useQueryClient()
@@ -40,6 +231,12 @@ const HRPage: React.FC = () => {
     titre: '', type: 'interne', date_debut: '', date_fin: '', description: '',
   })
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success'|'error' })
+
+  // ── Qualification state ──────────────────────────────────────────────────
+  const [qualDialog, setQualDialog] = useState(false)
+  const [editingQual, setEditingQual] = useState<Partial<Qualification> | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null)
+  const [siteFilter, setSiteFilter] = useState<'all'|'STE'|'STM'>('all')
 
   const { data: matrix, isLoading: ml } = useQuery({
     queryKey: ['hr-matrix'],
@@ -52,6 +249,10 @@ const HRPage: React.FC = () => {
   const { data: formations, isLoading: fl } = useQuery({
     queryKey: ['hr-formations'],
     queryFn: () => hrApi.listFormations().then(r => r.data),
+  })
+  const { data: qualifications, isLoading: ql } = useQuery({
+    queryKey: ['hr-qualifications'],
+    queryFn: () => hrApi.listQualifications().then(r => r.data),
   })
 
   const createFormation = useMutation({
@@ -70,6 +271,48 @@ const HRPage: React.FC = () => {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['hr-matrix'] }),
   })
 
+  const createQual = useMutation({
+    mutationFn: (d: Partial<Qualification>) => hrApi.createQualification(d),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['hr-qualifications'] })
+      setQualDialog(false)
+      setEditingQual(null)
+      setSnackbar({ open: true, message: 'Qualification créée', severity: 'success' })
+    },
+    onError: () => setSnackbar({ open: true, message: 'Erreur lors de la création', severity: 'error' }),
+  })
+
+  const updateQual = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<Qualification> }) =>
+      hrApi.updateQualification(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['hr-qualifications'] })
+      setQualDialog(false)
+      setEditingQual(null)
+      setSnackbar({ open: true, message: 'Qualification mise à jour', severity: 'success' })
+    },
+    onError: () => setSnackbar({ open: true, message: 'Erreur lors de la mise à jour', severity: 'error' }),
+  })
+
+  const deleteQual = useMutation({
+    mutationFn: (id: number) => hrApi.deleteQualification(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['hr-qualifications'] })
+      setDeleteConfirm(null)
+      setSnackbar({ open: true, message: 'Qualification supprimée', severity: 'success' })
+    },
+  })
+
+  const seedQuals = useMutation({
+    mutationFn: () => hrApi.seedQualifications(),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['hr-qualifications'] })
+      const d = (res as any).data
+      setSnackbar({ open: true, message: `${d.created} qualifications créées (${d.skipped} déjà existantes)`, severity: 'success' })
+    },
+    onError: () => setSnackbar({ open: true, message: 'Erreur lors du chargement', severity: 'error' }),
+  })
+
   const competenceList: any[] = (competences as any[]) ?? []
   const personnel: any[] = []
   const matrixMap: Record<string, number> = {}
@@ -83,6 +326,18 @@ const HRPage: React.FC = () => {
 
   const formationsList: any[] = Array.isArray(formations) ? formations : []
 
+  const qualList: Qualification[] = Array.isArray(qualifications)
+    ? (siteFilter === 'all' ? qualifications : qualifications.filter((q: Qualification) => q.sites.includes(siteFilter)))
+    : []
+
+  const handleSaveQual = (data: Partial<Qualification>) => {
+    if (editingQual?.id) {
+      updateQual.mutate({ id: editingQual.id, data })
+    } else {
+      createQual.mutate(data)
+    }
+  }
+
   return (
     <Box>
       <PageHeader
@@ -93,6 +348,25 @@ const HRPage: React.FC = () => {
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialog(true)}>
               Nouvelle formation
             </Button>
+          ) : tab === 2 ? (
+            <Stack direction="row" spacing={1}>
+              <Button
+                variant="outlined"
+                startIcon={<Refresh />}
+                onClick={() => seedQuals.mutate()}
+                disabled={seedQuals.isPending}
+                size="small"
+              >
+                Charger liste standard
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => { setEditingQual(null); setQualDialog(true) }}
+              >
+                Nouvelle qualification
+              </Button>
+            </Stack>
           ) : undefined
         }
       />
@@ -107,6 +381,7 @@ const HRPage: React.FC = () => {
       >
         <Tab icon={<Groups fontSize="small" />} iconPosition="start" label="Matrice des compétences" />
         <Tab icon={<School fontSize="small" />} iconPosition="start" label="Formations" />
+        <Tab icon={<WorkspacePremium fontSize="small" />} iconPosition="start" label="Suivi des Qualifications" />
       </Tabs>
 
       {/* Tab 0: Compétences matrix */}
@@ -338,6 +613,170 @@ const HRPage: React.FC = () => {
         )
       ))}
 
+      {/* Tab 2: Suivi des Qualifications */}
+      {tab === 2 && (ql ? <LoadingSpinner message="Chargement des qualifications..." /> : (
+        <Box>
+          {/* Filters */}
+          <Stack direction="row" spacing={1} mb={2} alignItems="center">
+            <Typography variant="body2" color="text.secondary">Filtrer par site :</Typography>
+            {(['all', 'STE', 'STM'] as const).map(s => (
+              <Chip
+                key={s}
+                label={s === 'all' ? 'Tous' : s === 'STE' ? 'E — STE' : 'M — STM'}
+                onClick={() => setSiteFilter(s)}
+                color={siteFilter === s ? 'primary' : 'default'}
+                variant={siteFilter === s ? 'filled' : 'outlined'}
+                size="small"
+              />
+            ))}
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 'auto !important' }}>
+              {qualList.length} qualification{qualList.length !== 1 ? 's' : ''}
+            </Typography>
+          </Stack>
+
+          {qualList.length === 0 ? (
+            <Paper sx={{ py: 6, textAlign: 'center', borderRadius: 2 }}>
+              <WorkspacePremium sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
+              <Typography variant="h6" color="text.secondary" gutterBottom>
+                Aucune qualification enregistrée
+              </Typography>
+              <Typography variant="body2" color="text.disabled" mb={3}>
+                Cliquez sur "Charger liste standard" pour pré-remplir avec les qualifications du laboratoire,
+                ou créez des qualifications manuellement.
+              </Typography>
+              <Stack direction="row" spacing={2} justifyContent="center">
+                <Button
+                  variant="outlined"
+                  startIcon={<Refresh />}
+                  onClick={() => seedQuals.mutate()}
+                  disabled={seedQuals.isPending}
+                >
+                  {seedQuals.isPending ? <CircularProgress size={18} /> : 'Charger liste standard'}
+                </Button>
+                <Button
+                  variant="contained"
+                  startIcon={<AddIcon />}
+                  onClick={() => { setEditingQual(null); setQualDialog(true) }}
+                >
+                  Nouvelle qualification
+                </Button>
+              </Stack>
+            </Paper>
+          ) : (
+            <Card sx={{ borderRadius: 2 }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={{ bgcolor: alpha(theme.palette.primary.main, 0.05) }}>
+                    <TableCell sx={{ fontWeight: 700, minWidth: 280 }}>Libellé</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 90 }} align="center">Durée (h)</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 120 }} align="center">Sites</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 110 }} align="center">Ré-évaluation</TableCell>
+                    <TableCell sx={{ fontWeight: 700, minWidth: 160 }}>Responsable</TableCell>
+                    <TableCell sx={{ fontWeight: 700, minWidth: 200 }}>Fonctions</TableCell>
+                    <TableCell sx={{ fontWeight: 700, minWidth: 180 }}>Description</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 90 }} align="center">Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {qualList.map((q) => (
+                    <TableRow key={q.id} hover sx={{ '&:last-child td': { borderBottom: 0 } }}>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight={600}>{q.libelle}</Typography>
+                      </TableCell>
+                      <TableCell align="center">
+                        {q.duree_heures != null ? (
+                          <Chip label={`${q.duree_heures}h`} size="small" variant="outlined" />
+                        ) : (
+                          <Typography variant="body2" color="text.disabled">—</Typography>
+                        )}
+                      </TableCell>
+                      <TableCell align="center">
+                        <Stack direction="row" spacing={0.5} justifyContent="center">
+                          {q.sites.map(s => (
+                            <Chip
+                              key={s}
+                              label={s === 'STE' ? 'E' : 'M'}
+                              size="small"
+                              color={s === 'STE' ? 'primary' : 'secondary'}
+                              sx={{ fontSize: 10, height: 20, minWidth: 24 }}
+                            />
+                          ))}
+                        </Stack>
+                      </TableCell>
+                      <TableCell align="center">
+                        {q.reevaluation ? (
+                          <Chip
+                            icon={<NotificationsActive sx={{ fontSize: 14 }} />}
+                            label="Oui"
+                            size="small"
+                            color="warning"
+                            variant="outlined"
+                            sx={{ fontSize: 11 }}
+                          />
+                        ) : (
+                          <Chip label="Non" size="small" color="default" variant="outlined" sx={{ fontSize: 11 }} />
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {q.responsable_nom ? (
+                          <Typography variant="body2">{q.responsable_nom}</Typography>
+                        ) : (
+                          <Typography variant="body2" color="text.disabled">—</Typography>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {q.fonctions_concernees.length > 0 ? (
+                          <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                            {q.fonctions_concernees.map(fn => (
+                              <Chip key={fn} label={fn} size="small" variant="outlined" sx={{ fontSize: 10, height: 20 }} />
+                            ))}
+                          </Stack>
+                        ) : (
+                          <Typography variant="body2" color="text.disabled">—</Typography>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {q.description ? (
+                          <Tooltip title={q.description}>
+                            <Typography variant="body2" noWrap sx={{ maxWidth: 180 }}>
+                              {q.description}
+                            </Typography>
+                          </Tooltip>
+                        ) : (
+                          <Typography variant="body2" color="text.disabled">—</Typography>
+                        )}
+                      </TableCell>
+                      <TableCell align="center">
+                        <Stack direction="row" spacing={0.5} justifyContent="center">
+                          <Tooltip title="Modifier">
+                            <IconButton
+                              size="small"
+                              color="primary"
+                              onClick={() => { setEditingQual(q); setQualDialog(true) }}
+                            >
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Supprimer">
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => setDeleteConfirm(q.id)}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </Stack>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Card>
+          )}
+        </Box>
+      ))}
+
       {/* Dialog nouvelle formation */}
       <Dialog open={dialog} onClose={() => setDialog(false)} maxWidth="sm" fullWidth>
         <DialogTitle>
@@ -408,6 +847,36 @@ const HRPage: React.FC = () => {
             disabled={!form.titre || createFormation.isPending}
           >
             {createFormation.isPending ? <CircularProgress size={20} /> : 'Créer'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Qualification dialog */}
+      <QualDialog
+        open={qualDialog}
+        initial={editingQual}
+        onClose={() => { setQualDialog(false); setEditingQual(null) }}
+        onSave={handleSaveQual}
+        loading={createQual.isPending || updateQual.isPending}
+      />
+
+      {/* Delete confirm dialog */}
+      <Dialog open={deleteConfirm !== null} onClose={() => setDeleteConfirm(null)} maxWidth="xs">
+        <DialogTitle>Supprimer la qualification ?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary">
+            Cette action est irréversible.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteConfirm(null)}>Annuler</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => deleteConfirm !== null && deleteQual.mutate(deleteConfirm)}
+            disabled={deleteQual.isPending}
+          >
+            Supprimer
           </Button>
         </DialogActions>
       </Dialog>

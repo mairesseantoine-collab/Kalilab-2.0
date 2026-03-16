@@ -389,6 +389,25 @@ class PlanningRH(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class Qualification(SQLModel, table=True):
+    __tablename__ = "qualifications"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    libelle: str = Field(index=True)
+    duree_heures: Optional[float] = None
+    description: Optional[str] = Field(default=None, sa_column=Column(Text))
+    reevaluation: bool = Field(default=False)
+    responsable_id: Optional[int] = Field(default=None, foreign_key="users.id")
+    sites: Optional[str] = Field(default=None)            # JSON: ["STE","STM"]
+    fonctions_concernees: Optional[str] = Field(default=None, sa_column=Column(Text))  # JSON list
+    personnel_concerne: Optional[str] = Field(default=None, sa_column=Column(Text))    # JSON list
+    docs_admin: Optional[str] = Field(default=None, sa_column=Column(Text))   # JSON [doc_id,...]
+    fichiers_admin: Optional[str] = Field(default=None, sa_column=Column(Text))        # JSON [path,...]
+    docs_user: Optional[str] = Field(default=None, sa_column=Column(Text))
+    fichiers_user: Optional[str] = Field(default=None, sa_column=Column(Text))
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Fournisseur(SQLModel, table=True):
     __tablename__ = "fournisseurs"
     id: Optional[int] = Field(default=None, primary_key=True)
