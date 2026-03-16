@@ -44,7 +44,7 @@ export const useUpdateDocument = () => {
 export const useSignDocument = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: { type_signature: string; commentaire?: string } }) =>
+    mutationFn: ({ id, data }: { id: number; data: { role_signature: string; commentaire?: string } }) =>
       documentsApi.sign(id, data).then((r) => r.data),
     onSuccess: (_data, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['documents', id] });
