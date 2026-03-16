@@ -132,21 +132,19 @@ async def get_dashboard_stats(
         for row in nc_by_type_result.fetchall()
     ]
 
-    # ── NCs des 6 derniers mois ───────────────────────────────────────────
+    # ── NCs des 6 derniers mois (compatible SQLite + PostgreSQL) ─────────────
     six_months_ago = datetime.utcnow() - timedelta(days=180)
     nc_trend_result = await session.execute(
-        select(
-            func.to_char(NonConformite.created_at, 'YYYY-MM').label('month'),
-            func.count()
-        )
+        select(NonConformite.created_at)
         .where(NonConformite.created_at >= six_months_ago)
-        .group_by(func.to_char(NonConformite.created_at, 'YYYY-MM'))
-        .order_by(func.to_char(NonConformite.created_at, 'YYYY-MM'))
+        .order_by(NonConformite.created_at)
     )
-    nc_by_month = [
-        {"month": row[0], "count": row[1]}
-        for row in nc_trend_result.fetchall()
-    ]
+    nc_dates = nc_trend_result.scalars().all()
+    nc_month_counts: dict = {}
+    for d in nc_dates:
+        key = d.strftime('%Y-%m') if hasattr(d, 'strftime') else str(d)[:7]
+        nc_month_counts[key] = nc_month_counts.get(key, 0) + 1
+    nc_by_month = [{"month": k, "count": v} for k, v in sorted(nc_month_counts.items())]
 
     # ── Actions en cours (liste) ──────────────────────────────────────────
     ongoing_actions_result = await session.execute(
