@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+dist/
+.next/
+.nuxt/
+*.log
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+*.env
+
+# Alembic
+alembic/versions/*.py
+!alembic/versions/.gitkeep
+
+# Base de données SQLite (runtime)
+*.db
+*.db-shm
+*.db-wal
+
+# Uploads
+backend/uploads/
+
+# Claude preview
+.claude/launch.json
