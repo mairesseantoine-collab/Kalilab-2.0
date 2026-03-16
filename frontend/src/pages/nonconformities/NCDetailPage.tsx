@@ -98,7 +98,7 @@ export default function NCDetailPage() {
     staleTime: 10 * 60 * 1000,
   })
 
-  const personnel = personnelData ?? []
+  const personnel = Array.isArray(personnelData) ? personnelData : []
   const nameById = (id_?: number | null) => {
     if (!id_) return null
     const p = personnel.find(u => u.id === id_)

@@ -390,7 +390,7 @@ const NCFormPage: React.FC = () => {
                               onChange={(e) => field.onChange(e.target.value === '' ? null : Number(e.target.value))}
                             >
                               <MenuItem value=""><em>Non attribué</em></MenuItem>
-                              {(personnelData ?? []).map(p => (
+                              {(Array.isArray(personnelData) ? personnelData : []).map(p => (
                                 <MenuItem key={p.id} value={p.id}>{p.label}</MenuItem>
                               ))}
                             </Select>

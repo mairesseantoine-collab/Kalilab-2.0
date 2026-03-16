@@ -35,7 +35,7 @@ services:
     rootDir: frontend
     envVars:
       - key: VITE_API_URL
-        value: REMPLACER_PAR_URL_BACKEND
+        value: https://kalilab-backend.onrender.com
     routes:
       - type: rewrite
         source: /*
