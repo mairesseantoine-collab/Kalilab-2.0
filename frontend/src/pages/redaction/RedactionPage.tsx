@@ -377,7 +377,7 @@ const AmdecTab: React.FC = () => {
         <DialogTitle>Nouvelle analyse AMDEC</DialogTitle>
         <DialogContent>
           <Box display='flex' flexDirection='column' gap={2} mt={1}>
-            <TextField label='Nom de l'analyseur *' fullWidth value={newForm.analyseur}
+            <TextField label="Nom de l'analyseur *" fullWidth value={newForm.analyseur}
               onChange={e => setNewForm(f => ({ ...f, analyseur: e.target.value }))} />
             <TextField label="Type d'analyseur (ex: Electrophorèse, Biochimie...)" fullWidth value={newForm.type_analyseur}
               onChange={e => setNewForm(f => ({ ...f, type_analyseur: e.target.value }))} />

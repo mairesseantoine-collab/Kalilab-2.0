@@ -192,7 +192,7 @@ const RisksPage: React.FC = () => {
       field: 'decision',
       headerName: 'Décision',
       width: 160,
-      valueGetter: (_, row) => row.criticite,
+      valueGetter: (params: { row: { criticite: RiskLevel } }) => params.row.criticite,
       renderCell: (params: GridRenderCellParams) => {
         const level = params.row.criticite as RiskLevel;
         const dec = DECISION_MAP[level];
