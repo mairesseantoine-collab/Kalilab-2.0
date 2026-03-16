@@ -202,7 +202,7 @@ const RiskFormPage: React.FC = () => {
                         onChange={(e) => field.onChange(e.target.value === '' ? null : Number(e.target.value))}
                       >
                         <MenuItem value=""><em>Non attribué</em></MenuItem>
-                        {(personnelData ?? []).map((p: any) => (
+                        {(Array.isArray(personnelData) ? personnelData : []).map((p: any) => (
                           <MenuItem key={p.id} value={p.id}>{p.label}</MenuItem>
                         ))}
                       </TextField>

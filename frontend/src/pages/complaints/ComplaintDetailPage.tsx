@@ -82,7 +82,7 @@ const ComplaintDetailPage: React.FC = () => {
     enabled: !!id,
   })
 
-  const personnel = personnelData ?? []
+  const personnel = Array.isArray(personnelData) ? personnelData : []
   const actions: any[] = Array.isArray(actionsData) ? actionsData : (actionsData as any)?.items ?? []
   const nameById = (pid?: number | null) => {
     if (!pid) return null
