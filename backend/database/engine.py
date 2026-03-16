@@ -13,8 +13,10 @@ DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "sqlite+aiosqlite:///./kalilab.db",
 )
-# Render fournit postgresql:// mais asyncpg requiert postgresql+asyncpg://
-if DATABASE_URL.startswith("postgresql://"):
+# Render/Heroku fournissent postgres:// ou postgresql:// — asyncpg requiert postgresql+asyncpg://
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+elif DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
 _sqlite = DATABASE_URL.startswith("sqlite")
