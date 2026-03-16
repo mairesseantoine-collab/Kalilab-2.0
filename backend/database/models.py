@@ -91,6 +91,31 @@ class AuditLog(SQLModel, table=True):
     ip_address: Optional[str] = None
 
 
+# ── Arborescence documentaire (doit être avant DocumentQualite pour les FK) ───
+
+class Service(SQLModel, table=True):
+    """Service analytique ou support du laboratoire (PREL, HEM, MICRO…)."""
+    __tablename__ = "services"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    label: str = Field(max_length=20, index=True)
+    nom: str = Field(max_length=200)
+    site: str = Field(default="both", index=True)
+    ordre: int = Field(default=0, index=True)
+    actif: bool = Field(default=True, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Localisation(SQLModel, table=True):
+    """Zone/localisation rattachée à un service, avec hiérarchie optionnelle."""
+    __tablename__ = "localisations"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    service_id: int = Field(foreign_key="services.id", index=True)
+    parent_id: Optional[int] = Field(default=None, foreign_key="localisations.id", index=True)
+    nom: str = Field(max_length=200)
+    ordre: int = Field(default=0)
+    actif: bool = Field(default=True, index=True)
+
+
 class DocumentQualite(SQLModel, table=True):
     __tablename__ = "documents_qualite"
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -469,31 +494,6 @@ class ProcedureMammouth(SQLModel, table=True):
     document_id: Optional[int] = Field(default=None, foreign_key="documents_qualite.id", index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
-
-
-# ── Arborescence documentaire ─────────────────────────────────────────────────
-
-class Service(SQLModel, table=True):
-    """Service analytique ou support du laboratoire (PREL, HEM, MICRO…)."""
-    __tablename__ = "services"
-    id: Optional[int] = Field(default=None, primary_key=True)
-    label: str = Field(max_length=20, index=True)   # ex: PREL, HEM, MICRO
-    nom: str = Field(max_length=200)
-    site: str = Field(default="both", index=True)   # "STE" | "STM" | "both"
-    ordre: int = Field(default=0, index=True)
-    actif: bool = Field(default=True, index=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-
-
-class Localisation(SQLModel, table=True):
-    """Zone/localisation rattachée à un service, avec hiérarchie optionnelle."""
-    __tablename__ = "localisations"
-    id: Optional[int] = Field(default=None, primary_key=True)
-    service_id: int = Field(foreign_key="services.id", index=True)
-    parent_id: Optional[int] = Field(default=None, foreign_key="localisations.id", index=True)
-    nom: str = Field(max_length=200)
-    ordre: int = Field(default=0)
-    actif: bool = Field(default=True, index=True)
 
 
 class Message(SQLModel, table=True):

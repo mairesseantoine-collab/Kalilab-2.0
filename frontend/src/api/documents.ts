@@ -9,10 +9,10 @@ export const documentsApi = {
   update: (id: number, data: Partial<DocumentQualite>) =>
     client.put<DocumentQualite>(`/documents/${id}`, data),
   delete: (id: number) => client.delete(`/documents/${id}`),
-  sign: (id: number, data: { type_signature: string; commentaire?: string }) =>
+  sign: (id: number, data: { role_signature: string; commentaire?: string }) =>
     client.post(`/documents/${id}/sign`, data),
   changeStatus: (id: number, statut: string) =>
-    client.post(`/documents/${id}/status`, { statut }),
+    client.put(`/documents/${id}/status`, { new_status: statut }),
   uploadFile: (id: number, file: File) => {
     const formData = new FormData();
     formData.append('file', file);
