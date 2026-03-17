@@ -23,6 +23,7 @@ from database.models import (
     Action,
     AuditLog,
     Service, Localisation,
+    Qualification,
 )
 import os
 from dotenv import load_dotenv
@@ -517,6 +518,107 @@ async def seed():
             print(f"[OK] Arborescence créée : {total_services} services, {total_zones} zones")
         else:
             print("[OK] Arborescence déjà présente — ignorée")
+
+        # ------------------------------------------------------------------ #
+        # 11. QUALIFICATIONS                                                  #
+        # ------------------------------------------------------------------ #
+        QUALIFICATIONS_STE = [
+            "[E] - Accueil", "[E] - Anoxomat - niveau 3", "[E] - Antibiogramme - Niveau 1",
+            "[E] - Antibiogramme - Niveau 3", "[E] - Auditeur interne : Niveau 3",
+            "[E] - Balances - Niveau 1", "[E] - Banque de sang - Immuno-Hémato - Niveau 1",
+            "[E] - Banque de sang - Immuno-Hémato - Niveau 3",
+            "[E] - Biologie moléculaire (GeneXpert) - Niveau 1",
+            "[E] - Biologie moléculaire (GeneXpert) - Niveau 3",
+            "[E] - Biologie moléculaire (Qiastat) - Niveau 3",
+            "[E] - Biologie moléculaire (Seegene) - niveau 2",
+            "[E] - Biologie moléculaire (Seegene) - niveau 3",
+            "[E] - Biologie moléculaire (magLEAD / CFX96) - Niveau 3",
+            "[E] - Biologiste de garde : niveau 3",
+            "[E] - Capillarys 3 Octa + Hydrasis 2 Scan+ Assist: niveau 3",
+            "[E] - Centrifugeuses / Cytocentrifugeuses Niveau 1",
+            "[E] - Coagulation (CN tests spéciaux) - Niveau 3",
+            "[E] - Coagulation (CN) - Niveau 1", "[E] - Coagulation (CN) - Niveau 2",
+            "[E] - Cobas CE Niveau 1", "[E] - Cobas CE Niveau 2",
+            "[E] - Flux laminaires Niveau 1", "[E] - Flux laminaires Niveau 3",
+            "[E] - Formule microscopique - Niveau 3", "[E] - Hotte chimique - Niveau 3",
+            "[E] - Hématologie manuelle - Niveau 1", "[E] - Hématologie manuelle - Niveau 3",
+            "[E] - Immunophénotypage - Cytométrie en flux", "[E] - Informatique - Niveau 3",
+            "[E] - Liaison XL", "[E] - Logistique - niveau 1", "[E] - Logistique - niveau 2",
+            "[E] - Logistique - niveau 3", "[E] - Microbiologie - Pré-analytique - Niveau 1",
+            "[E] - Microbiologie - Pré-analytique - Niveau 2",
+            "[E] - Microbiologie - Pré-analytique - Niveau 3",
+            "[E] - Micropipettes Niveau 1", "[E] - Micropipettes Niveau 2",
+            "[E] - Microscopes Niveau 1", "[E] - Microscopie IFA niveau 2",
+            "[E] - Nal Von Minden (C1 Reader) Niveau 1", "[E] - Nal Von Minden (C1 Reader) Niveau 2",
+            "[E] - Optilite - Niveau 3", "[E] - Osmométrie Niveau 1", "[E] - Osmométrie Niveau 2",
+            "[E] - POCT : Afinion2 CRP niveau 2", "[E] - POCT : Afinion2 CRP niveau 3",
+            "[E] - POCT : GEM 5000 Niveau 1", "[E] - POCT : GEM 5000 Niveau 2",
+            "[E] - POCT : GEM5000 Niveau 3", "[E] - POCT : Glucomètre Statstrip niveau 1",
+            "[E] - POCT : Glucomètre Statstrip niveau 2", "[E] - POCT : Glucomètre Statstrip niveau 3",
+            "[E] - Phadia250 Niveau 2", "[E] - Post-analytique - Niveau 1",
+            "[E] - Post-analytique - Niveau 2", "[E] - Post-analytique - Niveau 3",
+            "[E] - Prélèvements", "[E] - Qualité - Niveau 1", "[E] - Qualité - Niveau 2",
+            "[E] - Qualité - Niveau 3", "[E] - RH - Niveau 1",
+            "[E] - Réception et encodage - Niveau 1", "[E] - Réception et encodage - Niveau 3",
+            "[E] - Selles - Niveau 3", "[E] - Sous-traitance - Niveau 1",
+            "[E] - Sous-traitance - Niveau 3", "[E] - Spermiologie",
+            "[E] - Testo / 174T - Niveau 1", "[E] - Testo / Enceintes thermiques - Niveau 1",
+            "[E] - Testo / Enceintes thermiques - Niveau 3",
+            "[E] - Traitement pré-analytique STE (niveau 1)",
+            "[E] - Traitement pré-analytique STE (niveau 3)",
+            "[E] - Urines - Niveau 1", "[E] - Urines - Niveau 2", "[E] - Urines - Niveau 3",
+            "[E] - Vidas", "[E] - XN - Niveau 1", "[E] - XN - Niveau 3",
+        ]
+        QUALIFICATIONS_STM = [
+            "[M] - Accueil", "[M] - Auditeur interne : Niveau 3", "[M] - Balances - Niveau 1",
+            "[M] - Banque de sang - Immuno-Hémato - Niveau 1",
+            "[M] - Banque de sang - Immuno-Hémato - Niveau 3",
+            "[M] - Biologie moléculaire (GeneXpert) - Niveau 1",
+            "[M] - Biologie moléculaire (GeneXpert) - Niveau 3",
+            "[M] - Biologiste de garde : niveau 3",
+            "[M] - Centrifugeuses / Cytocentrifugeuses Niveau 1",
+            "[M] - Coagulation (CN) - Niveau 1", "[M] - Coagulation (CN) - Niveau 2",
+            "[M] - Flux laminaires Niveau 1", "[M] - Formule microscopique - Niveau 3",
+            "[M] - Hématologie manuelle - Niveau 1", "[M] - Hématologie manuelle - Niveau 3",
+            "[M] - Informatique - Niveau 3", "[M] - Logistique - niveau 1",
+            "[M] - Logistique - niveau 2", "[M] - Logistique - niveau 3",
+            "[M] - Microbiologie - Pré-analytique - Niveau 1",
+            "[M] - Micropipettes Niveau 1", "[M] - Micropipettes Niveau 2",
+            "[M] - Microscopes Niveau 1", "[M] - Microscopie IFA niveau 2",
+            "[M] - Nal Von Minden (C1 Reader) Niveau 1", "[M] - Nal Von Minden (C1 Reader) Niveau 2",
+            "[M] - Osmométrie Niveau 1", "[M] - Osmométrie Niveau 2",
+            "[M] - POCT : Afinion2 CRP niveau 2", "[M] - POCT : Afinion2 CRP niveau 3",
+            "[M] - POCT : GEM 5000 Niveau 1", "[M] - POCT : GEM 5000 Niveau 2",
+            "[M] - POCT : GEM5000 Niveau 3", "[M] - POCT : Glucomètre Statstrip niveau 1",
+            "[M] - POCT : Glucomètre Statstrip niveau 2", "[M] - POCT : Glucomètre Statstrip niveau 3",
+            "[M] - Phadia250 Niveau 2", "[M] - Post-analytique - Niveau 1",
+            "[M] - Post-analytique - Niveau 2", "[M] - Post-analytique - Niveau 3",
+            "[M] - Prélèvements", "[M] - Qualité - Niveau 1", "[M] - Qualité - Niveau 2",
+            "[M] - Qualité - Niveau 3", "[M] - RH - Niveau 1",
+            "[M] - Réception et encodage - Niveau 1", "[M] - Réception et encodage - Niveau 3",
+            "[M] - Sous-traitance - Niveau 1", "[M] - Sous-traitance - Niveau 3",
+            "[M] - Sprinter Niveau 2", "[M] - Testo / 174T - Niveau 1",
+            "[M] - Testo / Enceintes thermiques - Niveau 1",
+            "[M] - Testo / Enceintes thermiques - Niveau 3",
+            "[M] - Traitement pré-analytique STM (niveau 1)",
+            "[M] - Traitement pré-analytique STM (niveau 3)",
+            "[M] - Urines - Niveau 1", "[M] - Urines - Niveau 2", "[M] - Urines - Niveau 3",
+            "[M] - XN - Niveau 1", "[M] - XN - Niveau 3",
+        ]
+        from sqlalchemy import select as sa_select_q
+        existing_q = await session.execute(sa_select_q(Qualification.libelle))
+        existing_quals = {row[0] for row in existing_q.all()}
+        qual_count = 0
+        for libelle in QUALIFICATIONS_STE:
+            if libelle not in existing_quals:
+                session.add(Qualification(libelle=libelle, sites=json.dumps(["STE"])))
+                qual_count += 1
+        for libelle in QUALIFICATIONS_STM:
+            if libelle not in existing_quals:
+                session.add(Qualification(libelle=libelle, sites=json.dumps(["STM"])))
+                qual_count += 1
+        await session.commit()
+        print(f"[OK] {qual_count} qualifications created")
 
         print("\n=== SEED COMPLETE ===")
         for key, (prenom, nom, email, pwd, role) in zip(keys, user_data):
