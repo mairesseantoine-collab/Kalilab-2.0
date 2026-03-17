@@ -61,3 +61,27 @@ async def create_db_and_tables():
     import database.models  # noqa: F401
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
+        await _run_migrations(conn)
+
+
+async def _run_migrations(conn):
+    """Migrations manuelles : ajoute les colonnes manquantes sans perdre les données."""
+    migrations = [
+        # Qualifications — colonnes ajoutées v2
+        "ALTER TABLE qualifications ADD COLUMN IF NOT EXISTS criteres_evaluation TEXT",
+        "ALTER TABLE qualifications ADD COLUMN IF NOT EXISTS docs_admin TEXT",
+        "ALTER TABLE qualifications ADD COLUMN IF NOT EXISTS fichiers_admin TEXT",
+        "ALTER TABLE qualifications ADD COLUMN IF NOT EXISTS docs_user TEXT",
+        "ALTER TABLE qualifications ADD COLUMN IF NOT EXISTS fichiers_user TEXT",
+    ]
+    if _sqlite:
+        # SQLite ne supporte pas IF NOT EXISTS sur ALTER TABLE — on ignore les erreurs
+        for sql in migrations:
+            try:
+                await conn.execute(__import__("sqlalchemy").text(sql.replace(" IF NOT EXISTS", "")))
+            except Exception:
+                pass
+    else:
+        from sqlalchemy import text
+        for sql in migrations:
+            await conn.execute(text(sql))
