@@ -9,12 +9,12 @@ import {
 } from '@mui/material';
 import {
   BarChart as BarChartRecharts, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip as RechartsTooltip, Legend, LineChart, Line, ResponsiveContainer, Cell,
+  Tooltip as RechartsTooltip, LineChart, Line, ResponsiveContainer, Cell,
 } from 'recharts';
 import {
-  ReportProblem, Build, CheckCircle, BarChart as BarChartIcon,
+  ReportProblem, Build, CheckCircle,
   Add, Chat, FolderOpen, Warning, Assignment, ArrowForward,
-  TrendingUp, Schedule, PriorityHigh, Inbox,
+  Schedule, PriorityHigh, Inbox, EventBusy, Person,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
@@ -474,6 +474,110 @@ const DashboardPage: React.FC = () => {
                         <Box py={2}>
                           <CheckCircle color="success" sx={{ fontSize: 32, mb: 0.5, display: 'block', mx: 'auto' }} />
                           <Typography variant="body2" color="text.secondary">Aucun document en attente</Typography>
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Paper>
+        </Grid>
+
+        {/* ── NC par responsable ── */}
+        <Grid item xs={12} md={5}>
+          <Paper elevation={0} sx={{ p: 2.5, border: '1px solid', borderColor: 'divider' }}>
+            <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+              <Typography variant="h6" fontWeight={700}>
+                <Person sx={{ mr: 1, verticalAlign: 'middle', fontSize: 20, color: '#C62828' }} />
+                NC ouvertes par responsable
+              </Typography>
+              <Button size="small" endIcon={<ArrowForward />} onClick={() => navigate('/nonconformities')}>
+                Voir tout
+              </Button>
+            </Box>
+            {isLoading ? (
+              <Skeleton variant="rectangular" height={180} />
+            ) : !(stats?.nc_by_responsible || []).length ? (
+              <Box py={3} textAlign="center">
+                <CheckCircle color="success" sx={{ fontSize: 32, mb: 0.5 }} />
+                <Typography variant="body2" color="text.secondary">Aucune NC ouverte</Typography>
+              </Box>
+            ) : (
+              <ResponsiveContainer width="100%" height={Math.max(180, (stats.nc_by_responsible.length) * 36)}>
+                <BarChartRecharts
+                  data={stats.nc_by_responsible}
+                  layout="vertical"
+                  margin={{ left: 8, right: 16 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
+                  <YAxis dataKey="name" type="category" tick={{ fontSize: 11 }} width={110} />
+                  <RechartsTooltip formatter={(v: number) => [v, 'NC ouvertes']} />
+                  <Bar dataKey="count" fill="#C62828" radius={[0, 4, 4, 0]} name="NC ouvertes" />
+                </BarChartRecharts>
+              </ResponsiveContainer>
+            )}
+          </Paper>
+        </Grid>
+
+        {/* ── Documents expirant dans 30j ── */}
+        <Grid item xs={12} md={7}>
+          <Paper elevation={0} sx={{ p: 2.5, border: '1px solid', borderColor: 'divider' }}>
+            <Box display="flex" alignItems="center" justifyContent="space-between" mb={1.5}>
+              <Typography variant="h6" fontWeight={700}>
+                <EventBusy sx={{ mr: 1, verticalAlign: 'middle', fontSize: 20, color: '#E65100' }} />
+                Documents expirant dans 30 jours
+              </Typography>
+              <Button size="small" endIcon={<ArrowForward />} onClick={() => navigate('/documents')}>
+                Documents
+              </Button>
+            </Box>
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={{ '& th': { fontWeight: 700, color: 'text.secondary', fontSize: 12 } }}>
+                    <TableCell>Titre</TableCell>
+                    <TableCell align="center">Validité</TableCell>
+                    <TableCell align="center">Jours restants</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {isLoading
+                    ? Array(4).fill(0).map((_, i) => (
+                        <TableRow key={i}><TableCell colSpan={3}><Skeleton /></TableCell></TableRow>
+                      ))
+                    : (stats?.docs_expiring_soon || []).map((doc: any) => (
+                        <TableRow
+                          key={doc.id} hover sx={{ cursor: 'pointer' }}
+                          onClick={() => navigate(`/documents/${doc.id}`)}
+                        >
+                          <TableCell>
+                            <Typography variant="body2" fontWeight={500} noWrap sx={{ maxWidth: 240 }}>
+                              {doc.titre}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="center">
+                            <Typography variant="body2" color={doc.jours_restants <= 7 ? 'error.main' : 'warning.main'} fontWeight={600}>
+                              {dayjs(doc.date_validite).format('DD/MM/YYYY')}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="center">
+                            <Chip
+                              label={`${doc.jours_restants}j`}
+                              size="small"
+                              color={doc.jours_restants <= 7 ? 'error' : 'warning'}
+                              sx={{ fontWeight: 700 }}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                  {!isLoading && (stats?.docs_expiring_soon || []).length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={3} align="center">
+                        <Box py={2}>
+                          <CheckCircle color="success" sx={{ fontSize: 32, mb: 0.5, display: 'block', mx: 'auto' }} />
+                          <Typography variant="body2" color="text.secondary">Aucun document n'expire dans les 30 prochains jours</Typography>
                         </Box>
                       </TableCell>
                     </TableRow>

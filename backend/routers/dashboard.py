@@ -212,6 +212,41 @@ async def get_dashboard_stats(
         for d in docs_to_review_result.scalars().all()
     ]
 
+    # ── NC par responsable ────────────────────────────────────────────────────
+    nc_resp_result = await session.execute(
+        select(User.prenom, User.nom, func.count(NonConformite.id).label("count"))
+        .join(NonConformite, NonConformite.responsable_id == User.id)
+        .where(NonConformite.statut != NCStatus.CLOTUREE)
+        .group_by(User.id, User.prenom, User.nom)
+        .order_by(func.count(NonConformite.id).desc())
+        .limit(8)
+    )
+    nc_by_responsible = [
+        {"name": f"{row[0]} {row[1]}", "count": row[2]}
+        for row in nc_resp_result.fetchall()
+    ]
+
+    # ── Documents expirant dans 30 jours ──────────────────────────────────────
+    docs_expiring_result = await session.execute(
+        select(DocumentQualite)
+        .where(
+            DocumentQualite.date_validite >= today,
+            DocumentQualite.date_validite <= in_30_days,
+            DocumentQualite.statut == DocumentStatus.APPROUVE,
+        )
+        .order_by(DocumentQualite.date_validite)
+        .limit(8)
+    )
+    docs_expiring_soon = [
+        {
+            "id": d.id,
+            "titre": d.titre,
+            "date_validite": d.date_validite,
+            "jours_restants": (d.date_validite - today).days,
+        }
+        for d in docs_expiring_result.scalars().all()
+    ]
+
     # ── Messages non lus ─────────────────────────────────────────────────────
     unread_msgs_result = await session.execute(
         select(func.count()).select_from(Message).where(
@@ -248,6 +283,9 @@ async def get_dashboard_stats(
         "ongoing_actions": ongoing_actions,
         "overdue_equipment_list": overdue_equipment_list,
         "docs_to_review": docs_to_review,
+        # Nouveaux indicateurs
+        "nc_by_responsible": nc_by_responsible,
+        "docs_expiring_soon": docs_expiring_soon,
     }
 
 

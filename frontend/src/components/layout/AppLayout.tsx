@@ -80,14 +80,28 @@ const AppLayout: React.FC = () => {
   const { data: stats } = useQuery<any>({
     queryKey: ['dashboard', 'stats'],
     queryFn: () => dashboardApi.getStats().then((r) => r.data),
-    refetchInterval: 60000,
+    refetchInterval: 120000,
   });
+
+  const [prevAlertCount, setPrevAlertCount] = React.useState(0);
+  const [bellPulse, setBellPulse] = React.useState(false);
 
   const { data: alertsData, isLoading: alertsLoading } = useQuery<any>({
     queryKey: ['dashboard', 'alerts'],
     queryFn: () => dashboardApi.getAlerts().then((r) => r.data),
-    refetchInterval: 60000,
+    refetchInterval: 120000,
   });
+
+  // Animation cloche quand de nouvelles alertes arrivent
+  React.useEffect(() => {
+    const newCount = alertsData?.total ?? 0;
+    if (newCount > prevAlertCount && prevAlertCount !== 0) {
+      setBellPulse(true);
+      const t = setTimeout(() => setBellPulse(false), 1500);
+      return () => clearTimeout(t);
+    }
+    setPrevAlertCount(newCount);
+  }, [alertsData?.total]);
 
   // ── Navigation grouped by section ──────────────────────────────────────────
   const navGroups: NavGroup[] = [
@@ -435,7 +449,18 @@ const AppLayout: React.FC = () => {
 
           {/* Notifications */}
           <Tooltip title={`${totalNotifications || 0} alertes actives`}>
-            <IconButton color="inherit" onClick={(e) => setNotifAnchor(e.currentTarget)}>
+            <IconButton
+              color="inherit"
+              onClick={(e) => setNotifAnchor(e.currentTarget)}
+              sx={bellPulse ? {
+                animation: 'bellShake 0.4s ease-in-out 3',
+                '@keyframes bellShake': {
+                  '0%, 100%': { transform: 'rotate(0deg)' },
+                  '25%': { transform: 'rotate(-15deg)' },
+                  '75%': { transform: 'rotate(15deg)' },
+                },
+              } : undefined}
+            >
               <Badge badgeContent={totalNotifications || undefined} color="error" max={99}>
                 <Notifications />
               </Badge>
@@ -466,7 +491,12 @@ const AppLayout: React.FC = () => {
                 display="flex" justifyContent="space-between" alignItems="center"
                 sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'grey.50' }}
               >
-                <Typography variant="subtitle1" fontWeight={700}>Alertes & Notifications</Typography>
+                <Box>
+                  <Typography variant="subtitle1" fontWeight={700}>Alertes & Notifications</Typography>
+                  <Typography variant="caption" color="text.disabled">
+                    Mis à jour il y a moins de 2 min
+                  </Typography>
+                </Box>
                 {totalNotifications > 0 && (
                   <Chip label={`${totalNotifications} active${totalNotifications > 1 ? 's' : ''}`}
                     size="small" color="error" />

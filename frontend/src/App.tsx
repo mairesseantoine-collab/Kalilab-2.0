@@ -4,6 +4,7 @@ import { CircularProgress, Box } from '@mui/material';
 import AppLayout from './components/layout/AppLayout';
 import ProtectedRoute from './components/layout/ProtectedRoute';
 import LoginPage from './pages/LoginPage';
+import NotFoundPage from './pages/NotFoundPage';
 import ErrorBoundary from './components/common/ErrorBoundary';
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
@@ -87,7 +88,7 @@ const App: React.FC = () => {
           <Route path="messagerie" element={withErrorBoundary(<MessagingPage />)} />
           <Route path="services" element={withErrorBoundary(<ServicesPage />)} />
         </Route>
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </Suspense>
   );
