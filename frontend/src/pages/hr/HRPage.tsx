@@ -40,10 +40,6 @@ const FONCTIONS_BASE = [
   'Technologue Microbio',
 ]
 
-const FONCTIONS = [
-  ...FONCTIONS_BASE.map(f => `${f} [E]`),
-  ...FONCTIONS_BASE.map(f => `${f} [M]`),
-]
 
 const SITES = [
   { value: 'STE', label: 'E — STE' },
@@ -105,7 +101,15 @@ const QualDialog: React.FC<QualDialogProps> = ({
   const [fonctionMenuAnchor, setFonctionMenuAnchor] = useState<null | HTMLElement>(null)
 
   React.useEffect(() => {
-    setForm(initial ?? EMPTY_QUAL)
+    if (!initial) { setForm(EMPTY_QUAL); return }
+    // Normalise les anciennes valeurs de fonctions_concernees avec suffixe [E]/[M]
+    const normalized = { ...initial }
+    if (normalized.fonctions_concernees) {
+      normalized.fonctions_concernees = normalized.fonctions_concernees.map(
+        (f: string) => f.replace(/\s*\[(E|M)\]$/, '')
+      )
+    }
+    setForm(normalized)
   }, [initial, open])
 
   const set = (key: keyof Qualification, value: unknown) =>
@@ -123,7 +127,7 @@ const QualDialog: React.FC<QualDialogProps> = ({
 
   const selectByFonction = (fonctionBase: string) => {
     const toAdd = personnelList
-      .filter(p => p.fonction.startsWith(fonctionBase))
+      .filter(p => p.fonction.replace(/\s*\[(E|M)\]$/, '') === fonctionBase)
       .map(p => p.id)
     const current = selectedPersonnelIds
     const merged = Array.from(new Set([...current, ...toAdd]))
@@ -266,7 +270,7 @@ const QualDialog: React.FC<QualDialogProps> = ({
                 renderValue={(sel: string[]) => sel.join(', ')}
                 MenuProps={{ PaperProps: { style: { maxHeight: 300 } } }}
               >
-                {FONCTIONS.map(fn => (
+                {FONCTIONS_BASE.map(fn => (
                   <MenuItem key={fn} value={fn}>
                     <Checkbox checked={(form.fonctions_concernees ?? []).includes(fn)} />
                     <ListItemText primary={fn} />
@@ -411,7 +415,13 @@ const PersonnelDialog: React.FC<PersonnelDialogProps> = ({ open, initial, onClos
   const [form, setForm] = useState<Partial<PersonnelRH>>(initial ?? EMPTY_PERSONNEL)
 
   React.useEffect(() => {
-    setForm(initial ?? EMPTY_PERSONNEL)
+    if (!initial) { setForm(EMPTY_PERSONNEL); return }
+    // Normalise les anciennes valeurs de fonction avec suffixe [E]/[M]
+    const normalized = { ...initial }
+    if (normalized.fonction) {
+      normalized.fonction = normalized.fonction.replace(/\s*\[(E|M)\]$/, '')
+    }
+    setForm(normalized)
   }, [initial, open])
 
   const set = (key: keyof PersonnelRH, value: unknown) =>
@@ -478,7 +488,7 @@ const PersonnelDialog: React.FC<PersonnelDialogProps> = ({ open, initial, onClos
                 label="Fonction *"
                 MenuProps={{ PaperProps: { style: { maxHeight: 320 } } }}
               >
-                {FONCTIONS.map(fn => (
+                {FONCTIONS_BASE.map(fn => (
                   <MenuItem key={fn} value={fn}>{fn}</MenuItem>
                 ))}
               </Select>
