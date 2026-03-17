@@ -418,9 +418,15 @@ async def upload_document_file(
         raise HTTPException(status_code=404, detail="Document introuvable")
 
     # Read file content
+    MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
     file_bytes = await file.read()
     if len(file_bytes) == 0:
         raise HTTPException(status_code=400, detail="Fichier vide")
+    if len(file_bytes) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Fichier trop volumineux (max {MAX_FILE_SIZE // (1024 * 1024)} Mo)",
+        )
 
     # Determine content type
     content_type = file.content_type or "application/octet-stream"

@@ -1,3 +1,5 @@
+import os
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +23,21 @@ from routers import (
     messagerie,
     services,
 )
+
+
+logger = logging.getLogger("kalilab")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+# ─── CORS ────────────────────────────────────────────────────────────────────
+_raw = os.getenv("ALLOWED_ORIGINS", "")
+ALLOWED_ORIGINS: list[str] = [o.strip() for o in _raw.split(",") if o.strip()]
+# Fallback permissif seulement en développement local
+if not ALLOWED_ORIGINS:
+    ALLOWED_ORIGINS = ["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"]
+    logger.warning(
+        "ALLOWED_ORIGINS non défini → CORS restreint au localhost. "
+        "Définissez ALLOWED_ORIGINS en production (ex: https://kalilab.example.com)."
+    )
 
 
 async def auto_seed():
@@ -54,7 +71,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
