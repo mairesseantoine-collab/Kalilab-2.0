@@ -13,6 +13,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useAuth } from '../hooks/useAuth';
+import axios from 'axios';
 
 const schema = z.object({
   email: z.string().email('Adresse e-mail invalide'),
@@ -44,8 +45,20 @@ const LoginPage: React.FC = () => {
     try {
       await login(data.email, data.password);
       navigate('/dashboard');
-    } catch {
-      setError('Email ou mot de passe incorrect. Vérifiez vos identifiants.');
+    } catch (err) {
+      if (axios.isAxiosError(err)) {
+        if (err.response?.status === 401 || err.response?.status === 403) {
+          setError('Email ou mot de passe incorrect. Vérifiez vos identifiants.');
+        } else if (err.response?.status === 429) {
+          setError('Trop de tentatives. Veuillez patienter 60 secondes.');
+        } else if (!err.response) {
+          setError('Impossible de contacter le serveur. Vérifiez votre connexion ou réessayez.');
+        } else {
+          setError(`Erreur serveur (${err.response.status}). Contactez l'administrateur.`);
+        }
+      } else {
+        setError('Une erreur inattendue s\'est produite.');
+      }
     } finally {
       setLoading(false);
     }
