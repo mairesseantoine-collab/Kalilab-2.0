@@ -544,6 +544,26 @@ class HabilitationPersonnel(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class PersonnelAnnuaire(SQLModel, table=True):
+    """Annuaire RH complet du laboratoire — import Excel, dédoublonnage, historique."""
+    __tablename__ = "personnel_annuaire"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    nom: str = Field(index=True)
+    prenom: str = Field(index=True)
+    fonction: str
+    telephone_fixe: Optional[str] = None
+    telephone_gsm: Optional[str] = None
+    email: Optional[str] = Field(default=None, index=True)
+    date_entree: date
+    date_sortie: Optional[date] = None
+    badge: Optional[str] = Field(default=None, index=True)
+    charte: Optional[str] = None
+    service: Optional[str] = Field(default=None, index=True)
+    statut_actif: bool = Field(default=True, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Message(SQLModel, table=True):
     """Messagerie interne KaliLab — avec notification email Outlook."""
     __tablename__ = "messages"

@@ -50,6 +50,37 @@ export interface HabilitationStatus {
   status: 'valid' | 'expiring_soon' | 'expired' | 'not_habilitated';
 }
 
+export interface PersonnelAnnuaire {
+  id: number;
+  nom: string;
+  prenom: string;
+  fonction: string;
+  telephone_fixe: string | null;
+  telephone_gsm: string | null;
+  email: string | null;
+  date_entree: string;
+  date_sortie: string | null;
+  badge: string | null;
+  charte: string | null;
+  service: string | null;
+  statut_actif: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ImportError {
+  ligne: number;
+  raison: string;
+}
+
+export interface ImportReport {
+  created: number;
+  updated: number;
+  errors: ImportError[];
+  error_csv_b64: string | null;
+  total_processed: number;
+}
+
 export interface HabilitationMatrix {
   personnel: { id: number; nom: string; prenom: string; fonction: string; site: string }[];
   qualifications: { id: number; libelle: string; validite_mois: number | null; reevaluation: boolean }[];
@@ -84,6 +115,23 @@ export const hrApi = {
     client.delete(`/hr/qualifications/${id}`),
   seedQualifications: () =>
     client.post<{ created: number; skipped: number }>('/hr/qualifications/seed'),
+
+  // ── Annuaire RH ──────────────────────────────────────────────────────────
+  listAnnuaire: (params?: { search?: string; service?: string; actif?: string; skip?: number; limit?: number }) =>
+    client.get<{ items: PersonnelAnnuaire[]; total: number; services: string[] }>('/hr/annuaire', { params }),
+  createAnnuaire: (data: Partial<PersonnelAnnuaire>) =>
+    client.post<PersonnelAnnuaire>('/hr/annuaire', data),
+  updateAnnuaire: (id: number, data: Partial<PersonnelAnnuaire>) =>
+    client.put<PersonnelAnnuaire>(`/hr/annuaire/${id}`, data),
+  deleteAnnuaire: (id: number) => client.delete(`/hr/annuaire/${id}`),
+  exportAnnuaireCsv: (params?: { search?: string; service?: string; actif?: string }) =>
+    client.get('/hr/annuaire/export', { params, responseType: 'blob' }),
+  importAnnuaire: (formData: FormData) =>
+    client.post<ImportReport>('/hr/annuaire/import', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+  downloadTemplate: () =>
+    client.get('/hr/annuaire/template', { responseType: 'blob' }),
 
   listBiologistes: () => client.get<{ id: number; label: string }[]>('/hr/biologistes'),
   listPersonnelRH: (params?: { site?: string; actif?: boolean }) =>

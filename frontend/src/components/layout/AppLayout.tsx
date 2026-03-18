@@ -12,6 +12,7 @@ import {
   ChevronLeft, Notifications, Logout, Person, Language,
   ErrorOutline, WarningAmber, InfoOutlined, CheckCircleOutline,
   Gavel, FolderOpen, Science, Search as SearchIcon, Mail, AccountTree,
+  ContactPage,
 } from '@mui/icons-material';
 import CommandPalette from '../common/CommandPalette';
 import { useTranslation } from 'react-i18next';
@@ -134,6 +135,7 @@ const AppLayout: React.FC = () => {
       items: [
         { label: t('nav.equipment'), path: '/equipment', icon: <Build />, alertKey: 'overdue_calibrations' },
         { label: t('nav.hr'), path: '/hr', icon: <People /> },
+        { label: 'Annuaire RH', path: '/hr/annuaire', icon: <ContactPage /> },
         { label: t('nav.stock'), path: '/stock', icon: <Inventory /> },
       ],
     },

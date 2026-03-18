@@ -9,7 +9,7 @@ import json as _json
 from database.engine import get_session
 from database.models import (
     User, UserRole, Competence, Formation, PlanningRH, Qualification,
-    PersonnelRH, HabilitationPersonnel,
+    PersonnelRH, HabilitationPersonnel, PersonnelAnnuaire,
 )
 from auth.dependencies import get_current_user, require_role, log_action, get_client_ip
 
@@ -870,3 +870,649 @@ async def seed_qualifications(
             created += 1
     await session.commit()
     return {"created": created, "skipped": len(QUALIFICATIONS_STE) + len(QUALIFICATIONS_STM) - created}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ── ANNUAIRE RH ───────────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+
+import re
+import unicodedata
+import io
+import csv as _csv
+from fastapi import UploadFile, File
+from fastapi.responses import StreamingResponse
+from typing import Any
+
+# ── Synonymes de colonnes (insensibles à la casse + accents) ──────────────────
+
+COLUMN_SYNONYMS: dict[str, list[str]] = {
+    "nom":            ["nom"],
+    "prenom":         ["prénom", "prenom"],
+    "fonction":       ["fonction", "rôle", "role", "poste"],
+    "telephone_fixe": ["n° téléphone fixe", "n° telephone fixe", "téléphone fixe",
+                       "telephone fixe", "tel fixe", "fixe", "telephone"],
+    "telephone_gsm":  ["n° téléphone gsm", "n° telephone gsm", "gsm", "mobile",
+                       "gsm mobile", "téléphone gsm", "telephone gsm", "tel gsm"],
+    "email":          ["adresse mail", "email", "e-mail", "mail", "courriel"],
+    "date_entree":    ["entré(e) le", "entré le", "entrée le", "entree le",
+                       "date entrée", "date entree", "date d'entrée", "date d'entree",
+                       "entree"],
+    "date_sortie":    ["date de sortie", "sortie", "date sortie", "fin contrat",
+                       "date fin"],
+    "badge":          ["n° badge", "badge", "n° de badge", "numero badge", "no badge"],
+    "charte":         ["charte"],
+}
+
+# Mots-clés pour détecter une ligne de section (service)
+SERVICE_KEYWORDS = [
+    "biologiste", "infirmier", "technologue", "coordinateur", "coordinatrice",
+    "interimaire", "etudiant", "technicien", "laborantin", "secretaire",
+    "administratif", "qualiticien", "aide",
+]
+
+
+def _normalize_str(s: str) -> str:
+    """Retire accents, met en minuscules, supprime ponctuation superflue."""
+    nfkd = unicodedata.normalize("NFD", s)
+    ascii_only = nfkd.encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9 ]", " ", ascii_only.lower()).strip()
+
+
+def _match_column(header: str, synonyms: list[str]) -> bool:
+    norm_h = _normalize_str(header)
+    for syn in synonyms:
+        if _normalize_str(syn) == norm_h:
+            return True
+        if _normalize_str(syn) in norm_h or norm_h in _normalize_str(syn):
+            return True
+    return False
+
+
+def map_columns(headers: list[str]) -> dict[str, str | None]:
+    """Retourne {canonical_key: actual_header | None}."""
+    result: dict[str, str | None] = {k: None for k in COLUMN_SYNONYMS}
+    for header in headers:
+        for canonical, synonyms in COLUMN_SYNONYMS.items():
+            if result[canonical] is None and _match_column(header, synonyms):
+                result[canonical] = header
+                break
+    return result
+
+
+def is_service_line(row_value: str) -> bool:
+    """Détecte si une valeur de ligne représente un en-tête de section."""
+    if not row_value or not isinstance(row_value, str):
+        return False
+    stripped = row_value.strip()
+    # Entièrement en majuscules (au moins 4 chars) et contient un mot-clé
+    if stripped == stripped.upper() and len(stripped) >= 4:
+        normalized = _normalize_str(stripped)
+        return any(kw in normalized for kw in SERVICE_KEYWORDS)
+    return False
+
+
+def normalize_phone(raw: Any) -> str | None:
+    """Normalise un numéro de téléphone vers E.164 (Belgique par défaut)."""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s or s in ("-", "/", "NA", "N/A", "nan"):
+        return None
+    # Retirer séparateurs
+    cleaned = re.sub(r"[\s.\-/()]", "", s)
+    if not cleaned or not any(c.isdigit() for c in cleaned):
+        return None
+    # 00xx → +xx
+    if cleaned.startswith("00"):
+        return "+" + cleaned[2:]
+    # Déjà avec indicatif international
+    if cleaned.startswith("+"):
+        return cleaned
+    # Numéro belge : supprimer zéro initial et préfixer +32
+    if cleaned.startswith("0"):
+        return "+32" + cleaned[1:]
+    # Fallback Belgique
+    return "+32" + cleaned
+
+
+def parse_date(raw: Any) -> date | None:
+    """Parse une date dans plusieurs formats courants."""
+    if raw is None:
+        return None
+    if isinstance(raw, date):
+        return raw
+    s = str(raw).strip()
+    if not s or s in ("-", "/", "NA", "N/A", "nan", "None"):
+        return None
+    # Si c'est un float (Excel serial date number brut), ignorer
+    try:
+        f = float(s)
+        # pandas retourne déjà les dates comme date, mais au cas où
+        import pandas as pd
+        return pd.Timestamp.fromordinal(int(f) + 693594).date()
+    except (ValueError, TypeError, OverflowError):
+        pass
+    formats = ["%d/%m/%Y", "%d/%m/%y", "%Y-%m-%d", "%d-%m-%Y", "%d.%m.%Y",
+               "%Y/%m/%d", "%d %m %Y"]
+    for fmt in formats:
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def normalize_badge(raw: Any) -> str | None:
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s or s in ("/", "-", "NA", "N/A", "nan"):
+        return None
+    return s
+
+
+def normalize_charte(raw: Any) -> str | None:
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s or s in ("-", "NA", "N/A", "nan"):
+        return None
+    return s
+
+
+def compute_statut_actif(date_sortie: date | None) -> bool:
+    return date_sortie is None or date_sortie >= date.today()
+
+
+def extract_first_email(raw: Any) -> str | None:
+    """Extrait le premier email valide d'une cellule pouvant en contenir plusieurs."""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s or s in ("nan", "-"):
+        return None
+    # Chercher un pattern email dans la chaîne
+    matches = re.findall(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", s)
+    return matches[0].lower() if matches else None
+
+
+# ── Schémas Pydantic ──────────────────────────────────────────────────────────
+
+class PersonnelAnnuaireCreate(BaseModel):
+    nom: str
+    prenom: str
+    fonction: str
+    telephone_fixe: Optional[str] = None
+    telephone_gsm: Optional[str] = None
+    email: Optional[str] = None
+    date_entree: date
+    date_sortie: Optional[date] = None
+    badge: Optional[str] = None
+    charte: Optional[str] = None
+    service: Optional[str] = None
+
+
+class PersonnelAnnuaireUpdate(BaseModel):
+    nom: Optional[str] = None
+    prenom: Optional[str] = None
+    fonction: Optional[str] = None
+    telephone_fixe: Optional[str] = None
+    telephone_gsm: Optional[str] = None
+    email: Optional[str] = None
+    date_entree: Optional[date] = None
+    date_sortie: Optional[date] = None
+    badge: Optional[str] = None
+    charte: Optional[str] = None
+    service: Optional[str] = None
+
+
+def _pa_to_dict(p: PersonnelAnnuaire) -> dict:
+    return {
+        "id": p.id,
+        "nom": p.nom,
+        "prenom": p.prenom,
+        "fonction": p.fonction,
+        "telephone_fixe": p.telephone_fixe,
+        "telephone_gsm": p.telephone_gsm,
+        "email": p.email,
+        "date_entree": p.date_entree.isoformat() if p.date_entree else None,
+        "date_sortie": p.date_sortie.isoformat() if p.date_sortie else None,
+        "badge": p.badge,
+        "charte": p.charte,
+        "service": p.service,
+        "statut_actif": p.statut_actif,
+        "created_at": p.created_at.isoformat(),
+        "updated_at": p.updated_at.isoformat(),
+    }
+
+
+async def _find_duplicate(session: AsyncSession, nom: str, prenom: str,
+                           date_entree: date, email: str | None) -> PersonnelAnnuaire | None:
+    """Recherche un doublon par email ou (nom, prénom, date_entree)."""
+    if email:
+        q = await session.execute(
+            select(PersonnelAnnuaire).where(PersonnelAnnuaire.email == email.lower())
+        )
+        existing = q.scalars().first()
+        if existing:
+            return existing
+    q = await session.execute(
+        select(PersonnelAnnuaire).where(
+            PersonnelAnnuaire.nom.ilike(nom),
+            PersonnelAnnuaire.prenom.ilike(prenom),
+            PersonnelAnnuaire.date_entree == date_entree,
+        )
+    )
+    return q.scalars().first()
+
+
+def _upsert_fields(existing: PersonnelAnnuaire, data: dict) -> PersonnelAnnuaire:
+    """Met à jour champ par champ sans écraser données non-vides par vides."""
+    for field, new_val in data.items():
+        if new_val is not None and new_val != "":
+            setattr(existing, field, new_val)
+    existing.statut_actif = compute_statut_actif(existing.date_sortie)
+    existing.updated_at = datetime.utcnow()
+    return existing
+
+
+# ── Endpoints CRUD ────────────────────────────────────────────────────────────
+
+@router.get("/annuaire")
+async def list_annuaire(
+    search: str = "",
+    service: str = "",
+    actif: str = "",
+    skip: int = 0,
+    limit: int = 100,
+    session: AsyncSession = Depends(get_session),
+    _: User = Depends(get_current_user),
+):
+    q = select(PersonnelAnnuaire)
+    if search:
+        pattern = f"%{search}%"
+        from sqlalchemy import or_
+        q = q.where(
+            or_(
+                PersonnelAnnuaire.nom.ilike(pattern),
+                PersonnelAnnuaire.prenom.ilike(pattern),
+                PersonnelAnnuaire.fonction.ilike(pattern),
+                PersonnelAnnuaire.service.ilike(pattern),
+                PersonnelAnnuaire.email.ilike(pattern),
+            )
+        )
+    if service:
+        q = q.where(PersonnelAnnuaire.service == service)
+    if actif == "true":
+        q = q.where(PersonnelAnnuaire.statut_actif == True)
+    elif actif == "false":
+        q = q.where(PersonnelAnnuaire.statut_actif == False)
+
+    total_result = await session.execute(q)
+    total = len(total_result.all())
+
+    q = q.order_by(PersonnelAnnuaire.nom, PersonnelAnnuaire.prenom).offset(skip).limit(limit)
+    result = await session.execute(q)
+    items = result.scalars().all()
+
+    # Collect distinct services for filter UI
+    svc_result = await session.execute(
+        select(PersonnelAnnuaire.service).distinct()
+    )
+    services = sorted([r[0] for r in svc_result.all() if r[0]])
+
+    return {"items": [_pa_to_dict(p) for p in items], "total": total, "services": services}
+
+
+@router.post("/annuaire", status_code=201)
+async def create_annuaire(
+    data: PersonnelAnnuaireCreate,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.QUALITICIEN, UserRole.RESP_TECHNIQUE)),
+):
+    email = extract_first_email(data.email)
+    phone_fixe = normalize_phone(data.telephone_fixe)
+    phone_gsm = normalize_phone(data.telephone_gsm)
+    badge = normalize_badge(data.badge)
+
+    existing = await _find_duplicate(session, data.nom, data.prenom, data.date_entree, email)
+    if existing:
+        raise HTTPException(status_code=409, detail="Un membre avec ces informations existe déjà.")
+
+    member = PersonnelAnnuaire(
+        nom=data.nom.strip(),
+        prenom=data.prenom.strip(),
+        fonction=data.fonction.strip(),
+        telephone_fixe=phone_fixe,
+        telephone_gsm=phone_gsm,
+        email=email,
+        date_entree=data.date_entree,
+        date_sortie=data.date_sortie,
+        badge=badge,
+        charte=normalize_charte(data.charte),
+        service=data.service,
+        statut_actif=compute_statut_actif(data.date_sortie),
+    )
+    session.add(member)
+    await session.commit()
+    await session.refresh(member)
+    await log_action(session, current_user.id, "personnel_annuaire", member.id,
+                     "create", {}, _pa_to_dict(member), get_client_ip(request))
+    return _pa_to_dict(member)
+
+
+@router.put("/annuaire/{member_id}")
+async def update_annuaire(
+    member_id: int,
+    data: PersonnelAnnuaireUpdate,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.QUALITICIEN, UserRole.RESP_TECHNIQUE)),
+):
+    result = await session.execute(select(PersonnelAnnuaire).where(PersonnelAnnuaire.id == member_id))
+    member = result.scalars().first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Membre introuvable.")
+
+    before = _pa_to_dict(member)
+    update_data = data.dict(exclude_none=True)
+    if "email" in update_data:
+        update_data["email"] = extract_first_email(update_data["email"])
+    if "telephone_fixe" in update_data:
+        update_data["telephone_fixe"] = normalize_phone(update_data["telephone_fixe"])
+    if "telephone_gsm" in update_data:
+        update_data["telephone_gsm"] = normalize_phone(update_data["telephone_gsm"])
+    if "badge" in update_data:
+        update_data["badge"] = normalize_badge(update_data["badge"])
+    if "charte" in update_data:
+        update_data["charte"] = normalize_charte(update_data["charte"])
+
+    for field, val in update_data.items():
+        setattr(member, field, val)
+    member.statut_actif = compute_statut_actif(member.date_sortie)
+    member.updated_at = datetime.utcnow()
+
+    await session.commit()
+    await session.refresh(member)
+    await log_action(session, current_user.id, "personnel_annuaire", member.id,
+                     "update", before, _pa_to_dict(member), get_client_ip(request))
+    return _pa_to_dict(member)
+
+
+@router.delete("/annuaire/{member_id}", status_code=204)
+async def delete_annuaire(
+    member_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.QUALITICIEN)),
+):
+    result = await session.execute(select(PersonnelAnnuaire).where(PersonnelAnnuaire.id == member_id))
+    member = result.scalars().first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Membre introuvable.")
+    before = _pa_to_dict(member)
+    await session.delete(member)
+    await session.commit()
+    await log_action(session, current_user.id, "personnel_annuaire", member_id,
+                     "delete", before, {}, get_client_ip(request))
+
+
+# ── Export CSV ────────────────────────────────────────────────────────────────
+
+@router.get("/annuaire/export")
+async def export_annuaire_csv(
+    search: str = "",
+    service: str = "",
+    actif: str = "",
+    session: AsyncSession = Depends(get_session),
+    _: User = Depends(get_current_user),
+):
+    q = select(PersonnelAnnuaire)
+    if search:
+        pattern = f"%{search}%"
+        from sqlalchemy import or_
+        q = q.where(
+            or_(
+                PersonnelAnnuaire.nom.ilike(pattern),
+                PersonnelAnnuaire.prenom.ilike(pattern),
+                PersonnelAnnuaire.fonction.ilike(pattern),
+            )
+        )
+    if service:
+        q = q.where(PersonnelAnnuaire.service == service)
+    if actif == "true":
+        q = q.where(PersonnelAnnuaire.statut_actif == True)
+    elif actif == "false":
+        q = q.where(PersonnelAnnuaire.statut_actif == False)
+
+    q = q.order_by(PersonnelAnnuaire.nom)
+    result = await session.execute(q)
+    items = result.scalars().all()
+
+    output = io.StringIO()
+    writer = _csv.writer(output)
+    writer.writerow(["Nom", "Prénom", "Fonction", "Service", "Tél fixe", "GSM",
+                     "Email", "Date entrée", "Date sortie", "Badge", "Charte", "Actif"])
+    for p in items:
+        writer.writerow([
+            p.nom, p.prenom, p.fonction, p.service or "",
+            p.telephone_fixe or "", p.telephone_gsm or "",
+            p.email or "",
+            p.date_entree.isoformat() if p.date_entree else "",
+            p.date_sortie.isoformat() if p.date_sortie else "",
+            p.badge or "", p.charte or "",
+            "Oui" if p.statut_actif else "Non",
+        ])
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=annuaire_rh.csv"},
+    )
+
+
+# ── Template Excel ────────────────────────────────────────────────────────────
+
+@router.get("/annuaire/template")
+async def download_template(_: User = Depends(get_current_user)):
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Personnel"
+    headers = ["Nom", "Prénom", "Fonction", "N° téléphone fixe", "N° téléphone GSM",
+               "Adresse mail", "Entré(e) le", "Date de sortie", "N° badge", "Charte"]
+    ws.append(headers)
+    # Exemple de ligne
+    ws.append(["Dupont", "Marie", "Biologiste", "02/555.12.34", "0476/12.34.56",
+               "marie.dupont@labo.be", "01/09/2022", "", "BIO001", "ok"])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=template_annuaire_rh.xlsx"},
+    )
+
+
+# ── Import Excel / CSV ────────────────────────────────────────────────────────
+
+@router.post("/annuaire/import")
+async def import_annuaire(
+    file: UploadFile = File(...),
+    request: Request = None,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.QUALITICIEN, UserRole.RESP_TECHNIQUE)),
+):
+    import pandas as pd
+
+    content = await file.read()
+    filename = file.filename or ""
+
+    try:
+        if filename.endswith(".csv"):
+            # Essayer plusieurs encodages
+            for enc in ("utf-8-sig", "latin-1", "cp1252"):
+                try:
+                    df = pd.read_csv(io.BytesIO(content), encoding=enc, header=None,
+                                     dtype=str, keep_default_na=False)
+                    break
+                except Exception:
+                    continue
+        else:
+            df = pd.read_excel(io.BytesIO(content), header=None, dtype=str,
+                               keep_default_na=False)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Impossible de lire le fichier : {e}")
+
+    # Détecter la ligne d'en-tête (première ligne non-section et non-vide)
+    header_row_idx = None
+    for idx, row in df.iterrows():
+        non_empty = [c for c in row.tolist() if c and str(c).strip()]
+        if not non_empty:
+            continue
+        first_cell = str(non_empty[0]).strip()
+        if is_service_line(first_cell):
+            continue
+        # Vérifier si la ligne ressemble à des en-têtes (contient 'nom' ou 'prénom')
+        row_lower = [_normalize_str(str(c)) for c in non_empty]
+        if any("nom" in c or "prenom" in c for c in row_lower):
+            header_row_idx = idx
+            break
+
+    if header_row_idx is None:
+        # Essayer la première ligne non-vide comme en-tête
+        for idx, row in df.iterrows():
+            non_empty = [c for c in row.tolist() if c and str(c).strip()]
+            if non_empty:
+                header_row_idx = idx
+                break
+
+    if header_row_idx is None:
+        raise HTTPException(status_code=400, detail="Impossible de détecter les en-têtes de colonnes.")
+
+    headers = [str(c).strip() for c in df.iloc[header_row_idx].tolist()]
+    col_map = map_columns(headers)
+
+    data_rows = df.iloc[header_row_idx + 1:].reset_index(drop=True)
+
+    created = 0
+    updated = 0
+    errors: list[dict] = []
+    current_service: str | None = None
+
+    for row_idx, row in data_rows.iterrows():
+        row_num = int(row_idx) + header_row_idx + 3  # line number in file (1-based + header)
+        row_list = row.tolist()
+
+        # Vérifier si la ligne est vide
+        if not any(str(c).strip() for c in row_list if c):
+            continue
+
+        # Vérifier si c'est une ligne de section
+        first_non_empty = next((str(c).strip() for c in row_list if str(c).strip()), "")
+        if is_service_line(first_non_empty):
+            current_service = first_non_empty.title()
+            continue
+
+        # Extraire valeurs par mapping
+        def get_col(canonical: str) -> str | None:
+            hdr = col_map.get(canonical)
+            if hdr is None:
+                return None
+            try:
+                col_idx = headers.index(hdr)
+                val = row_list[col_idx] if col_idx < len(row_list) else None
+                return str(val).strip() if val is not None and str(val).strip() not in ("", "nan") else None
+            except (ValueError, IndexError):
+                return None
+
+        raw_nom = get_col("nom")
+        raw_prenom = get_col("prenom")
+        raw_fonction = get_col("fonction")
+
+        # Champs obligatoires
+        if not raw_nom or not raw_prenom:
+            errors.append({"ligne": row_num, "raison": "Nom ou prénom manquant."})
+            continue
+        if not raw_fonction:
+            raw_fonction = "Non spécifié"
+
+        raw_date_entree = get_col("date_entree")
+        date_entree = parse_date(raw_date_entree)
+        if not date_entree:
+            errors.append({"ligne": row_num, "raison": f"Date d'entrée invalide ou manquante : '{raw_date_entree}'."})
+            continue
+
+        date_sortie = parse_date(get_col("date_sortie"))
+        email = extract_first_email(get_col("email"))
+        phone_fixe = normalize_phone(get_col("telephone_fixe"))
+        phone_gsm = normalize_phone(get_col("telephone_gsm"))
+        badge = normalize_badge(get_col("badge"))
+        charte = normalize_charte(get_col("charte"))
+        statut = compute_statut_actif(date_sortie)
+
+        try:
+            existing = await _find_duplicate(session, raw_nom, raw_prenom, date_entree, email)
+            if existing:
+                # Upsert
+                update_data = {
+                    "nom": raw_nom.strip(),
+                    "prenom": raw_prenom.strip(),
+                    "fonction": raw_fonction.strip(),
+                    "telephone_fixe": phone_fixe,
+                    "telephone_gsm": phone_gsm,
+                    "email": email,
+                    "date_entree": date_entree,
+                    "date_sortie": date_sortie,
+                    "badge": badge,
+                    "charte": charte,
+                    "service": current_service,
+                }
+                _upsert_fields(existing, update_data)
+                await session.commit()
+                updated += 1
+            else:
+                member = PersonnelAnnuaire(
+                    nom=raw_nom.strip(),
+                    prenom=raw_prenom.strip(),
+                    fonction=raw_fonction.strip(),
+                    telephone_fixe=phone_fixe,
+                    telephone_gsm=phone_gsm,
+                    email=email,
+                    date_entree=date_entree,
+                    date_sortie=date_sortie,
+                    badge=badge,
+                    charte=charte,
+                    service=current_service,
+                    statut_actif=statut,
+                )
+                session.add(member)
+                await session.commit()
+                created += 1
+        except Exception as exc:
+            await session.rollback()
+            errors.append({"ligne": row_num, "raison": str(exc)})
+
+    # Générer CSV d'erreurs si besoin
+    error_csv_b64 = None
+    if errors:
+        err_buf = io.StringIO()
+        err_writer = _csv.writer(err_buf)
+        err_writer.writerow(["Ligne", "Raison"])
+        for e in errors:
+            err_writer.writerow([e["ligne"], e["raison"]])
+        import base64
+        error_csv_b64 = base64.b64encode(err_buf.getvalue().encode("utf-8")).decode()
+
+    return {
+        "created": created,
+        "updated": updated,
+        "errors": errors,
+        "error_csv_b64": error_csv_b64,
+        "total_processed": created + updated + len(errors),
+    }

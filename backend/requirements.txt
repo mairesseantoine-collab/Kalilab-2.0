@@ -18,3 +18,5 @@ aiosqlite==0.20.0
 asyncpg==0.29.0
 greenlet>=3.0.0
 aiosmtplib>=2.0.0
+pandas>=2.2.0
+openpyxl>=3.1.2

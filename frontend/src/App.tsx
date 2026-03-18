@@ -24,6 +24,7 @@ const EquipmentPage = lazy(() => import('./pages/equipment/EquipmentPage'));
 const EquipmentDetailPage = lazy(() => import('./pages/equipment/EquipmentDetailPage'));
 const EquipmentFormPage = lazy(() => import('./pages/equipment/EquipmentFormPage'));
 const HRPage = lazy(() => import('./pages/hr/HRPage'));
+const HRAnnuairePage = lazy(() => import('./pages/hr/HRAnnuairePage'));
 const StockPage = lazy(() => import('./pages/stock/StockPage'));
 const ReceptionPage = lazy(() => import('./pages/stock/ReceptionPage'));
 const ComplaintsPage = lazy(() => import('./pages/complaints/ComplaintsPage'));
@@ -78,6 +79,7 @@ const App: React.FC = () => {
           <Route path="equipment/new" element={withErrorBoundary(<EquipmentFormPage />)} />
           <Route path="equipment/:id" element={withErrorBoundary(<EquipmentDetailPage />)} />
           <Route path="hr" element={withErrorBoundary(<HRPage />)} />
+          <Route path="hr/annuaire" element={withErrorBoundary(<HRAnnuairePage />)} />
           <Route path="stock" element={withErrorBoundary(<StockPage />)} />
           <Route path="stock/reception" element={withErrorBoundary(<ReceptionPage />)} />
           <Route path="complaints" element={withErrorBoundary(<ComplaintsPage />)} />
