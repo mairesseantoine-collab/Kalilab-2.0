@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Query, UploadFile, File
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy import select, func
 from datetime import datetime
@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from database.engine import get_session
 from database.models import User, UserRole, IndicateurQualite, MesureKPI
 from auth.dependencies import get_current_user, require_role, log_action, get_client_ip
+from services.storage_service import upload_file as storage_upload
 
 router = APIRouter()
 
@@ -20,6 +21,7 @@ class IndicateurCreate(BaseModel):
     cible: Optional[float] = None
     unite: Optional[str] = None
     processus_id: Optional[int] = None
+    biologiste_id: Optional[int] = None
 
 
 class MesureCreate(BaseModel):
@@ -29,6 +31,23 @@ class MesureCreate(BaseModel):
     commentaire: Optional[str] = None
 
 
+def _indicator_dict(i: IndicateurQualite, biologiste: Optional[User] = None) -> dict:
+    return {
+        "id": i.id,
+        "nom": i.nom,
+        "code": i.code,
+        "periodicite": i.periodicite,
+        "formule": i.formule,
+        "cible": i.cible,
+        "unite": i.unite,
+        "processus_id": i.processus_id,
+        "biologiste_id": i.biologiste_id,
+        "biologiste": {"id": biologiste.id, "prenom": biologiste.prenom, "nom": biologiste.nom} if biologiste else None,
+        "fichier_excel": i.fichier_excel,
+        "created_at": i.created_at,
+    }
+
+
 @router.get("/indicators")
 async def list_indicators(
     session: AsyncSession = Depends(get_session),
@@ -36,20 +55,14 @@ async def list_indicators(
 ):
     result = await session.execute(select(IndicateurQualite).order_by(IndicateurQualite.code))
     indicators = result.scalars().all()
-    return [
-        {
-            "id": i.id,
-            "nom": i.nom,
-            "code": i.code,
-            "periodicite": i.periodicite,
-            "formule": i.formule,
-            "cible": i.cible,
-            "unite": i.unite,
-            "processus_id": i.processus_id,
-            "created_at": i.created_at,
-        }
-        for i in indicators
-    ]
+    # Load biologists in one pass
+    bio_ids = list({i.biologiste_id for i in indicators if i.biologiste_id})
+    bios: dict = {}
+    if bio_ids:
+        bio_result = await session.execute(select(User).where(User.id.in_(bio_ids)))
+        for u in bio_result.scalars().all():
+            bios[u.id] = u
+    return [_indicator_dict(i, bios.get(i.biologiste_id) if i.biologiste_id else None) for i in indicators]
 
 
 @router.get("/indicators/{indicator_id}")
@@ -61,13 +74,13 @@ async def get_indicator(
     ind = await session.get(IndicateurQualite, indicator_id)
     if not ind:
         raise HTTPException(status_code=404, detail="Indicateur introuvable")
-    return {"id": ind.id, "nom": ind.nom, "code": ind.code, "periodicite": ind.periodicite,
-            "formule": ind.formule, "cible": ind.cible, "unite": ind.unite,
-            "processus_id": ind.processus_id, "created_at": ind.created_at}
+    biologiste = await session.get(User, ind.biologiste_id) if ind.biologiste_id else None
+    return _indicator_dict(ind, biologiste)
 
 
 @router.put("/indicators/{indicator_id}")
 async def update_indicator(
+    request: Request,
     indicator_id: int,
     data: IndicateurCreate,
     session: AsyncSession = Depends(get_session),
@@ -81,7 +94,54 @@ async def update_indicator(
     session.add(ind)
     await session.commit()
     await session.refresh(ind)
-    return {"id": ind.id, "code": ind.code}
+    await log_action(
+        session, user_id=current_user.id, action="UPDATE",
+        resource_type="indicateur", resource_id=str(ind.id),
+        details=f"Mise à jour indicateur {ind.code}", ip_address=get_client_ip(request),
+    )
+    biologiste = await session.get(User, ind.biologiste_id) if ind.biologiste_id else None
+    return _indicator_dict(ind, biologiste)
+
+
+@router.post("/indicators/{indicator_id}/upload-excel", status_code=status.HTTP_200_OK)
+async def upload_excel(
+    request: Request,
+    indicator_id: int,
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Attacher un fichier Excel à un indicateur pour l'analyse des données."""
+    ind = await session.get(IndicateurQualite, indicator_id)
+    if not ind:
+        raise HTTPException(status_code=404, detail="Indicateur introuvable")
+
+    file_bytes = await file.read()
+    if len(file_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Fichier vide")
+    if len(file_bytes) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Fichier trop volumineux (max 20 Mo)")
+
+    safe_filename = file.filename or "analyse.xlsx"
+    content_type = file.content_type or "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    storage_path = f"kpi/{indicator_id}/{safe_filename}"
+
+    try:
+        await storage_upload(file_bytes, storage_path, content_type)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur stockage: {str(e)}")
+
+    ind.fichier_excel = storage_path
+    session.add(ind)
+    await session.commit()
+    await session.refresh(ind)
+    await log_action(
+        session, user_id=current_user.id, action="UPLOAD_EXCEL",
+        resource_type="indicateur", resource_id=str(ind.id),
+        details=f"Excel attaché: {safe_filename} — {ind.code}",
+        ip_address=get_client_ip(request),
+    )
+    return {"fichier_excel": storage_path, "nom_fichier": safe_filename}
 
 
 @router.get("/mesures")
@@ -117,6 +177,7 @@ async def create_indicator(
         cible=data.cible,
         unite=data.unite,
         processus_id=data.processus_id,
+        biologiste_id=data.biologiste_id,
     )
     session.add(indicator)
     await session.commit()

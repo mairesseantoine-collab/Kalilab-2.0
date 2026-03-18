@@ -284,6 +284,8 @@ class IndicateurQualite(SQLModel, table=True):
     cible: Optional[float] = None
     unite: Optional[str] = None
     processus_id: Optional[int] = Field(default=None, foreign_key="processus.id", index=True)
+    biologiste_id: Optional[int] = Field(default=None, foreign_key="users.id", index=True)
+    fichier_excel: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

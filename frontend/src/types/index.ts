@@ -121,6 +121,9 @@ export interface IndicateurQualite {
   cible?: number
   unite?: string
   processus_id?: number
+  biologiste_id?: number
+  biologiste?: { id: number; prenom: string; nom: string }
+  fichier_excel?: string
 }
 
 export interface MesureKPI {
