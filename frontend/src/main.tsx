@@ -9,6 +9,7 @@ import App from './App';
 import theme from './theme';
 import './i18n';
 import { AuthProvider } from './contexts/AuthContext';
+import { ToastProvider } from './contexts/ToastContext';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -33,7 +34,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <LocalizationProvider dateAdapter={AdapterDayjs}>
             <CssBaseline />
             <AuthProvider>
-              <App />
+              <ToastProvider>
+                <App />
+              </ToastProvider>
             </AuthProvider>
           </LocalizationProvider>
         </ThemeProvider>

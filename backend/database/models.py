@@ -284,6 +284,8 @@ class IndicateurQualite(SQLModel, table=True):
     cible: Optional[float] = None
     unite: Optional[str] = None
     processus_id: Optional[int] = Field(default=None, foreign_key="processus.id", index=True)
+    biologiste_id: Optional[int] = Field(default=None, foreign_key="users.id", index=True)
+    fichier_excel: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -350,6 +352,36 @@ class Maintenance(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class PanneEquipement(SQLModel, table=True):
+    """Historique des pannes d'un équipement — calcul MTBF."""
+    __tablename__ = "pannes_equipement"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    equipement_id: int = Field(foreign_key="equipements.id", index=True)
+    date_debut: datetime = Field(index=True)
+    date_fin: Optional[datetime] = None        # None = panne en cours
+    description: str = Field(sa_column=Column(Text))
+    cause: Optional[str] = None
+    resolution: Optional[str] = None
+    impact: str = Field(default="moyen")       # faible / moyen / critique
+    signale_par: Optional[str] = None          # nom libre ou user
+    user_id: Optional[int] = Field(default=None, foreign_key="users.id")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class EquipementPiece(SQLModel, table=True):
+    """Pièces de rechange associées à un équipement (lien stock optionnel)."""
+    __tablename__ = "equipement_pieces"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    equipement_id: int = Field(foreign_key="equipements.id", index=True)
+    article_id: Optional[int] = Field(default=None, foreign_key="articles.id")
+    designation: str
+    reference: Optional[str] = None
+    quantite_min: Optional[float] = None
+    notes: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Competence(SQLModel, table=True):
     __tablename__ = "competences"
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -387,6 +419,27 @@ class PlanningRH(SQLModel, table=True):
     motif: Optional[str] = None
     statut: str = Field(default="prevu")
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Qualification(SQLModel, table=True):
+    __tablename__ = "qualifications"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    libelle: str = Field(index=True)
+    duree_heures: Optional[float] = None
+    description: Optional[str] = Field(default=None, sa_column=Column(Text))
+    reevaluation: bool = Field(default=False)
+    validite_mois: Optional[int] = None                   # validity period in months (used when reevaluation=True)
+    responsable_id: Optional[int] = Field(default=None, foreign_key="users.id")
+    sites: Optional[str] = Field(default=None)            # JSON: ["STE","STM"]
+    fonctions_concernees: Optional[str] = Field(default=None, sa_column=Column(Text))  # JSON list
+    personnel_concerne: Optional[str] = Field(default=None, sa_column=Column(Text))    # JSON list of PersonnelRH IDs
+    criteres_evaluation: Optional[str] = Field(default=None, sa_column=Column(Text))   # JSON: [{descriptif, obligatoire}]
+    docs_admin: Optional[str] = Field(default=None, sa_column=Column(Text))   # JSON [doc_id,...]
+    fichiers_admin: Optional[str] = Field(default=None, sa_column=Column(Text))        # JSON [path,...]
+    docs_user: Optional[str] = Field(default=None, sa_column=Column(Text))
+    fichiers_user: Optional[str] = Field(default=None, sa_column=Column(Text))
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class Fournisseur(SQLModel, table=True):
@@ -492,6 +545,95 @@ class ProcedureMammouth(SQLModel, table=True):
     historique: Optional[str] = Field(default=None, sa_column=Column(Text))
     statut: str = Field(default="brouillon", index=True)
     document_id: Optional[int] = Field(default=None, foreign_key="documents_qualite.id", index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class PersonnelRH(SQLModel, table=True):
+    """Registre du personnel du laboratoire (indépendant des comptes utilisateurs)."""
+    __tablename__ = "personnel_rh"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    nom: str = Field(index=True)
+    prenom: str
+    telephone: Optional[str] = None
+    site: str = Field(default="STE", index=True)   # STE, STM, both
+    fonction: str = Field(index=True)
+    actif: bool = Field(default=True, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class HabilitationPersonnel(SQLModel, table=True):
+    """Enregistrement d'une habilitation individuelle (personnel × qualification)."""
+    __tablename__ = "habilitations_personnel"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    personnel_id: int = Field(foreign_key="personnel_rh.id", index=True)
+    qualification_id: int = Field(foreign_key="qualifications.id", index=True)
+    date_habilitation: date
+    date_echeance: Optional[date] = None   # calculated from qualification.validite_mois
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class PersonnelAnnuaire(SQLModel, table=True):
+    """Annuaire RH complet du laboratoire — import Excel, dédoublonnage, historique."""
+    __tablename__ = "personnel_annuaire"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    nom: str = Field(index=True)
+    prenom: str = Field(index=True)
+    fonction: str
+    telephone_fixe: Optional[str] = None
+    telephone_gsm: Optional[str] = None
+    email: Optional[str] = Field(default=None, index=True)
+    date_entree: date
+    date_sortie: Optional[date] = None
+    badge: Optional[str] = Field(default=None, index=True)
+    charte: Optional[str] = None
+    service: Optional[str] = Field(default=None, index=True)
+    statut_actif: bool = Field(default=True, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ActionPAG(SQLModel, table=True):
+    """Plan d'Actions et de Gestion — PAG biologistes ISO 15189."""
+    __tablename__ = "actions_pag"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+
+    # Description de la tâche
+    tache: str = Field(sa_column=Column(Text))
+
+    # Attribution (responsable)
+    attribution: Optional[str] = Field(default=None, max_length=100)
+
+    # Notes d'avancement (journal horodaté)
+    avancement_notes: Optional[str] = Field(default=None, sa_column=Column(Text))
+
+    # Pourcentage d'avancement : 0, 25, 50, 75, 100
+    avancement_pct: int = Field(default=0)
+
+    # Priorité : 1-Imp + Urg | 2-Non imp - Urg | 3-Imp - Non Urg | 4-Non Imp - Non Urg
+    priorite: str = Field(default="3- Imp - Non Urg", max_length=30)
+
+    # Date de fin prévue
+    date_fin_prevue: Optional[date] = None
+
+    # Clôturé
+    cloture: bool = Field(default=False)
+
+    # Vérification d'efficacité (Oui / Non / None)
+    verification_efficacite: Optional[bool] = None
+
+    # Catégorisation (dropdowns PAG biologists)
+    groupe: Optional[str] = Field(default=None, max_length=80)
+    annexe: Optional[str] = Field(default=None, max_length=80)
+    famille: Optional[str] = Field(default=None, sa_column=Column(Text))
+
+    # Responsable du PAG (ex: "Vanneste", "Biologistes")
+    responsable_pag: Optional[str] = Field(default=None, max_length=100)
+
+    # Méta
+    created_by_id: Optional[int] = Field(default=None, foreign_key="users.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

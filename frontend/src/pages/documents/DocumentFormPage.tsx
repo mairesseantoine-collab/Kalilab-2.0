@@ -1,10 +1,10 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box, Card, CardContent, Grid, TextField, MenuItem,
   Button, CircularProgress, Alert, Typography, Divider,
 } from '@mui/material';
-import { Save, ArrowBack } from '@mui/icons-material';
+import { Save, ArrowBack, AttachFile } from '@mui/icons-material';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -50,6 +50,9 @@ const DocumentFormPage: React.FC = () => {
   const createMutation = useCreateDocument();
   const updateMutation = useUpdateDocument();
 
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [fileUploading, setFileUploading] = useState(false);
+
   const { control, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -86,7 +89,16 @@ const DocumentFormPage: React.FC = () => {
         navigate(`/documents/${id}`);
       } else {
         const result = await createMutation.mutateAsync(payload);
-        navigate(`/documents/${(result as { id: number }).id}`);
+        const newId = (result as { id: number }).id;
+        if (pendingFile) {
+          try {
+            setFileUploading(true);
+            await documentsApi.uploadFile(newId, pendingFile);
+          } catch {} finally {
+            setFileUploading(false);
+          }
+        }
+        navigate(`/documents/${newId}`);
       }
     } catch {}
   };
@@ -94,8 +106,13 @@ const DocumentFormPage: React.FC = () => {
   const handleFileUpload = async (file: File) => {
     if (id) {
       try {
+        setFileUploading(true);
         await documentsApi.uploadFile(Number(id), file);
-      } catch {}
+      } catch {} finally {
+        setFileUploading(false);
+      }
+    } else {
+      setPendingFile(file);
     }
   };
 
@@ -245,11 +262,24 @@ const DocumentFormPage: React.FC = () => {
                   )}
                 />
               </Grid>
-              {isEdit && (
-                <Grid item xs={12}>
-                  <FileUpload onFileSelect={handleFileUpload} label={t('documents.uploadFile')} />
-                </Grid>
-              )}
+              <Grid item xs={12}>
+                <Typography variant="subtitle2" color="text.secondary" fontWeight={600} gutterBottom>
+                  <AttachFile sx={{ verticalAlign: 'middle', mr: 0.5, fontSize: 18 }} />
+                  Fichier joint (Word, PDF, Excel…)
+                </Typography>
+                <Divider sx={{ mb: 2 }} />
+                {!isEdit && pendingFile && (
+                  <Alert severity="success" sx={{ mb: 1 }}>
+                    Fichier sélectionné : {pendingFile.name} — sera joint après création du document.
+                  </Alert>
+                )}
+                <FileUpload
+                  onFileSelect={handleFileUpload}
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.odt,.ods"
+                  loading={fileUploading}
+                  label={isEdit ? t('documents.uploadFile') : 'Joindre un fichier existant (optionnel)'}
+                />
+              </Grid>
               <Grid item xs={12}>
                 <Box display="flex" gap={2}>
                   <Button

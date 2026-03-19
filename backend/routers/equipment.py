@@ -6,7 +6,7 @@ from typing import Optional
 from pydantic import BaseModel
 
 from database.engine import get_session
-from database.models import User, UserRole, Equipement, EquipmentStatus, Calibration, Maintenance
+from database.models import User, UserRole, Equipement, EquipmentStatus, Calibration, Maintenance, PanneEquipement, EquipementPiece
 from auth.dependencies import get_current_user, require_role, log_action, get_client_ip
 
 router = APIRouter()
@@ -335,3 +335,251 @@ async def add_maintenance(
         ip_address=get_client_ip(request),
     )
     return {"id": maint.id, "statut": maint.statut}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ── PANNES & MTBF ─────────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class PanneCreate(BaseModel):
+    date_debut: datetime
+    date_fin: Optional[datetime] = None
+    description: str
+    cause: Optional[str] = None
+    resolution: Optional[str] = None
+    impact: str = "moyen"
+    signale_par: Optional[str] = None
+
+
+class PanneUpdate(BaseModel):
+    date_fin: Optional[datetime] = None
+    description: Optional[str] = None
+    cause: Optional[str] = None
+    resolution: Optional[str] = None
+    impact: Optional[str] = None
+    signale_par: Optional[str] = None
+
+
+@router.get("/{eq_id}/pannes")
+async def list_pannes(
+    eq_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    result = await session.execute(
+        select(PanneEquipement)
+        .where(PanneEquipement.equipement_id == eq_id)
+        .order_by(PanneEquipement.date_debut.desc())
+    )
+    pannes = result.scalars().all()
+
+    # Calcul MTBF (Mean Time Between Failures)
+    # MTBF = (date première panne - date acquisition) / nb_pannes  [en jours]
+    eq_result = await session.execute(select(Equipement).where(Equipement.id == eq_id))
+    eq = eq_result.scalars().first()
+    mtbf_jours = None
+    if eq and pannes:
+        start = eq.date_acquisition or eq.created_at.date()
+        total_days = (date.today() - start).days
+        nb_pannes = len(pannes)
+        if nb_pannes > 0 and total_days > 0:
+            mtbf_jours = round(total_days / nb_pannes, 1)
+
+    # Durée totale d'immobilisation
+    total_downtime_h = 0.0
+    for p in pannes:
+        if p.date_fin:
+            total_downtime_h += (p.date_fin - p.date_debut).total_seconds() / 3600
+
+    return {
+        "pannes": [
+            {
+                "id": p.id,
+                "date_debut": p.date_debut.isoformat(),
+                "date_fin": p.date_fin.isoformat() if p.date_fin else None,
+                "description": p.description,
+                "cause": p.cause,
+                "resolution": p.resolution,
+                "impact": p.impact,
+                "signale_par": p.signale_par,
+                "en_cours": p.date_fin is None,
+                "duree_heures": round((p.date_fin - p.date_debut).total_seconds() / 3600, 1) if p.date_fin else None,
+            }
+            for p in pannes
+        ],
+        "mtbf_jours": mtbf_jours,
+        "total_pannes": len(pannes),
+        "pannes_en_cours": sum(1 for p in pannes if p.date_fin is None),
+        "total_downtime_heures": round(total_downtime_h, 1),
+    }
+
+
+@router.post("/{eq_id}/pannes", status_code=201)
+async def create_panne(
+    eq_id: int,
+    data: PanneCreate,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    eq_result = await session.execute(select(Equipement).where(Equipement.id == eq_id))
+    eq = eq_result.scalars().first()
+    if not eq:
+        raise HTTPException(status_code=404, detail="Équipement introuvable.")
+
+    panne = PanneEquipement(
+        equipement_id=eq_id,
+        date_debut=data.date_debut,
+        date_fin=data.date_fin,
+        description=data.description,
+        cause=data.cause,
+        resolution=data.resolution,
+        impact=data.impact,
+        signale_par=data.signale_par,
+        user_id=current_user.id,
+    )
+    session.add(panne)
+    # Si panne non résolue, passer l'équipement en HORS_SERVICE
+    if not data.date_fin:
+        eq.statut = EquipmentStatus.HORS_SERVICE
+        eq.updated_at = datetime.utcnow()
+        session.add(eq)
+    await session.commit()
+    await session.refresh(panne)
+    await log_action(
+        session, user_id=current_user.id, action="PANNE_CREATE",
+        resource_type="equipement", resource_id=str(eq_id),
+        details=f"Panne signalée sur {eq.nom} — impact: {data.impact}",
+        ip_address=get_client_ip(request),
+    )
+    return {"id": panne.id, "en_cours": panne.date_fin is None}
+
+
+@router.put("/{eq_id}/pannes/{panne_id}")
+async def update_panne(
+    eq_id: int,
+    panne_id: int,
+    data: PanneUpdate,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    result = await session.execute(
+        select(PanneEquipement).where(
+            PanneEquipement.id == panne_id,
+            PanneEquipement.equipement_id == eq_id,
+        )
+    )
+    panne = result.scalars().first()
+    if not panne:
+        raise HTTPException(status_code=404, detail="Panne introuvable.")
+
+    for field, val in data.dict(exclude_none=True).items():
+        setattr(panne, field, val)
+    panne.updated_at = datetime.utcnow()
+
+    # Si résolution → repasser l'équipement en OPERATIONNEL
+    if data.date_fin:
+        eq_result = await session.execute(select(Equipement).where(Equipement.id == eq_id))
+        eq = eq_result.scalars().first()
+        if eq:
+            eq.statut = EquipmentStatus.OPERATIONNEL
+            eq.updated_at = datetime.utcnow()
+            session.add(eq)
+
+    await session.commit()
+    return {"id": panne.id, "resolved": panne.date_fin is not None}
+
+
+@router.delete("/{eq_id}/pannes/{panne_id}", status_code=204)
+async def delete_panne(
+    eq_id: int,
+    panne_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.QUALITICIEN)),
+):
+    result = await session.execute(
+        select(PanneEquipement).where(
+            PanneEquipement.id == panne_id,
+            PanneEquipement.equipement_id == eq_id,
+        )
+    )
+    panne = result.scalars().first()
+    if not panne:
+        raise HTTPException(status_code=404, detail="Panne introuvable.")
+    await session.delete(panne)
+    await session.commit()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ── PIÈCES DE RECHANGE ────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class PieceCreate(BaseModel):
+    designation: str
+    reference: Optional[str] = None
+    article_id: Optional[int] = None
+    quantite_min: Optional[float] = None
+    notes: Optional[str] = None
+
+
+@router.get("/{eq_id}/pieces")
+async def list_pieces(
+    eq_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    result = await session.execute(
+        select(EquipementPiece)
+        .where(EquipementPiece.equipement_id == eq_id)
+        .order_by(EquipementPiece.designation)
+    )
+    pieces = result.scalars().all()
+    return [
+        {
+            "id": p.id,
+            "designation": p.designation,
+            "reference": p.reference,
+            "article_id": p.article_id,
+            "quantite_min": p.quantite_min,
+            "notes": p.notes,
+        }
+        for p in pieces
+    ]
+
+
+@router.post("/{eq_id}/pieces", status_code=201)
+async def create_piece(
+    eq_id: int,
+    data: PieceCreate,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.QUALITICIEN, UserRole.RESP_TECHNIQUE)),
+):
+    eq_result = await session.execute(select(Equipement).where(Equipement.id == eq_id))
+    if not eq_result.scalars().first():
+        raise HTTPException(status_code=404, detail="Équipement introuvable.")
+    piece = EquipementPiece(equipement_id=eq_id, **data.dict())
+    session.add(piece)
+    await session.commit()
+    await session.refresh(piece)
+    return {"id": piece.id, "designation": piece.designation}
+
+
+@router.delete("/{eq_id}/pieces/{piece_id}", status_code=204)
+async def delete_piece(
+    eq_id: int,
+    piece_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.QUALITICIEN, UserRole.RESP_TECHNIQUE)),
+):
+    result = await session.execute(
+        select(EquipementPiece).where(
+            EquipementPiece.id == piece_id,
+            EquipementPiece.equipement_id == eq_id,
+        )
+    )
+    piece = result.scalars().first()
+    if not piece:
+        raise HTTPException(status_code=404, detail="Pièce introuvable.")
+    await session.delete(piece)
+    await session.commit()

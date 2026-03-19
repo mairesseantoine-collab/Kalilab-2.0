@@ -247,7 +247,7 @@ const AmdecTab: React.FC = () => {
           <Divider />
           {isLoading ? <LoadingSpinner message='' /> : (
             <List dense>
-              {(amdecList ?? []).map((a: any) => (
+              {(Array.isArray(amdecList) ? amdecList : []).map((a: any) => (
                 <ListItem key={a.id} disablePadding>
                   <ListItemButton selected={selectedId === a.id} onClick={() => setSelectedId(a.id)}>
                     <ListItemText
@@ -261,7 +261,7 @@ const AmdecTab: React.FC = () => {
                   </ListItemButton>
                 </ListItem>
               ))}
-              {(amdecList ?? []).length === 0 && (
+              {(Array.isArray(amdecList) ? amdecList : []).length === 0 && (
                 <ListItem><ListItemText primary='Aucune analyse' secondary='Cliquez + pour créer' /></ListItem>
               )}
             </List>

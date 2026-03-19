@@ -119,7 +119,7 @@ const ComposeDialog: React.FC<ComposeDialogProps> = ({ open, onClose, replyTo })
                   label="Destinataire *"
                   onChange={e => setDestinataire(e.target.value as number)}
                 >
-                  {(personnelData ?? []).map((p: any) => (
+                  {(Array.isArray(personnelData) ? personnelData : []).map((p: any) => (
                     <MenuItem key={p.id} value={p.id}>
                       <Box display="flex" alignItems="center" gap={1.5}>
                         <Avatar sx={{ width: 28, height: 28, fontSize: 11, bgcolor: avatarColor(p.id) }}>

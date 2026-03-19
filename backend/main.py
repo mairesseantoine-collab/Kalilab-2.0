@@ -1,3 +1,5 @@
+import os
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,7 +22,23 @@ from routers import (
     dashboard,
     messagerie,
     services,
+    pag,
 )
+
+
+logger = logging.getLogger("kalilab")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+# ─── CORS ────────────────────────────────────────────────────────────────────
+_raw = os.getenv("ALLOWED_ORIGINS", "")
+ALLOWED_ORIGINS: list[str] = [o.strip() for o in _raw.split(",") if o.strip()]
+# Fallback permissif seulement en développement local
+if not ALLOWED_ORIGINS:
+    ALLOWED_ORIGINS = ["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"]
+    logger.warning(
+        "ALLOWED_ORIGINS non défini → CORS restreint au localhost. "
+        "Définissez ALLOWED_ORIGINS en production (ex: https://kalilab.example.com)."
+    )
 
 
 async def auto_seed():
@@ -54,7 +72,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -77,6 +95,7 @@ app.include_router(audit_trail.router, prefix="/audit-trail", tags=["Piste d'Aud
 app.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
 app.include_router(messagerie.router, prefix="/messagerie", tags=["Messagerie"])
 app.include_router(services.router, prefix="/services", tags=["Arborescence"])
+app.include_router(pag.router, prefix="/pag", tags=["PAG Biologistes"])
 
 
 @app.get("/", tags=["Racine"])

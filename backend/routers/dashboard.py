@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
+import asyncio
+import json as _json
+from fastapi.responses import StreamingResponse
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy import select, func
 from datetime import date, datetime, timedelta
@@ -212,6 +215,41 @@ async def get_dashboard_stats(
         for d in docs_to_review_result.scalars().all()
     ]
 
+    # ── NC par responsable ────────────────────────────────────────────────────
+    nc_resp_result = await session.execute(
+        select(User.prenom, User.nom, func.count(NonConformite.id).label("count"))
+        .join(NonConformite, NonConformite.responsable_id == User.id)
+        .where(NonConformite.statut != NCStatus.CLOTUREE)
+        .group_by(User.id, User.prenom, User.nom)
+        .order_by(func.count(NonConformite.id).desc())
+        .limit(8)
+    )
+    nc_by_responsible = [
+        {"name": f"{row[0]} {row[1]}", "count": row[2]}
+        for row in nc_resp_result.fetchall()
+    ]
+
+    # ── Documents expirant dans 30 jours ──────────────────────────────────────
+    docs_expiring_result = await session.execute(
+        select(DocumentQualite)
+        .where(
+            DocumentQualite.date_validite >= today,
+            DocumentQualite.date_validite <= in_30_days,
+            DocumentQualite.statut == DocumentStatus.APPROUVE,
+        )
+        .order_by(DocumentQualite.date_validite)
+        .limit(8)
+    )
+    docs_expiring_soon = [
+        {
+            "id": d.id,
+            "titre": d.titre,
+            "date_validite": d.date_validite,
+            "jours_restants": (d.date_validite - today).days,
+        }
+        for d in docs_expiring_result.scalars().all()
+    ]
+
     # ── Messages non lus ─────────────────────────────────────────────────────
     unread_msgs_result = await session.execute(
         select(func.count()).select_from(Message).where(
@@ -248,7 +286,132 @@ async def get_dashboard_stats(
         "ongoing_actions": ongoing_actions,
         "overdue_equipment_list": overdue_equipment_list,
         "docs_to_review": docs_to_review,
+        # Nouveaux indicateurs
+        "nc_by_responsible": nc_by_responsible,
+        "docs_expiring_soon": docs_expiring_soon,
     }
+
+
+@router.get("/stats/n1")
+async def get_dashboard_stats_n1(
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Retourne les mêmes KPI compteurs pour N-1 (même jour l'an dernier)."""
+    from datetime import date, timedelta
+    today = date.today()
+    today_n1 = today.replace(year=today.year - 1)
+    in_30_n1 = today_n1 + timedelta(days=30)
+
+    open_nc_n1 = (await session.execute(
+        select(func.count()).select_from(NonConformite).where(
+            NonConformite.statut != NCStatus.CLOTUREE,
+            NonConformite.created_at <= datetime.combine(today_n1, datetime.min.time()),
+        )
+    )).scalar() or 0
+
+    overdue_cal_n1 = (await session.execute(
+        select(func.count()).select_from(Equipement).where(
+            Equipement.prochaine_calibration < today_n1,
+            Equipement.statut != EquipmentStatus.HORS_SERVICE,
+        )
+    )).scalar() or 0
+
+    pending_docs_n1 = (await session.execute(
+        select(func.count()).select_from(DocumentQualite).where(
+            DocumentQualite.statut.in_([
+                DocumentStatus.RELECTURE, DocumentStatus.APPROBATION
+            ]),
+            DocumentQualite.created_at <= datetime.combine(today_n1, datetime.min.time()),
+        )
+    )).scalar() or 0
+
+    open_complaints_n1 = (await session.execute(
+        select(func.count()).select_from(Plainte).where(
+            Plainte.statut.in_([ComplaintStatus.OUVERTE, ComplaintStatus.EN_COURS]),
+            Plainte.created_at <= datetime.combine(today_n1, datetime.min.time()),
+        )
+    )).scalar() or 0
+
+    return {
+        "open_nc": open_nc_n1,
+        "overdue_calibrations": overdue_cal_n1,
+        "pending_docs": pending_docs_n1,
+        "open_complaints": open_complaints_n1,
+    }
+
+
+@router.get("/stream")
+async def alerts_stream(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """SSE endpoint — envoie les alertes actives toutes les 30 secondes."""
+    async def event_generator():
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                today = date.today()
+                in_30 = today + timedelta(days=30)
+
+                open_nc = (await session.execute(
+                    select(func.count()).select_from(NonConformite).where(
+                        NonConformite.statut != NCStatus.CLOTUREE
+                    )
+                )).scalar() or 0
+
+                overdue_cal = (await session.execute(
+                    select(func.count()).select_from(Equipement).where(
+                        Equipement.prochaine_calibration < today,
+                        Equipement.statut != EquipmentStatus.HORS_SERVICE,
+                    )
+                )).scalar() or 0
+
+                upcoming_cal = (await session.execute(
+                    select(func.count()).select_from(Equipement).where(
+                        Equipement.prochaine_calibration >= today,
+                        Equipement.prochaine_calibration <= in_30,
+                        Equipement.statut != EquipmentStatus.HORS_SERVICE,
+                    )
+                )).scalar() or 0
+
+                overdue_actions = (await session.execute(
+                    select(func.count()).select_from(Action).where(
+                        Action.statut != "cloturee",
+                        Action.echeance < today,
+                    )
+                )).scalar() or 0
+
+                alerts = []
+                if open_nc > 0:
+                    alerts.append({"type": "nc", "severity": "error", "count": open_nc,
+                                   "message": f"{open_nc} non-conformité(s) ouverte(s)"})
+                if overdue_cal > 0:
+                    alerts.append({"type": "calibration", "severity": "error", "count": overdue_cal,
+                                   "message": f"{overdue_cal} étalonnage(s) en retard"})
+                if upcoming_cal > 0:
+                    alerts.append({"type": "calibration_soon", "severity": "warning", "count": upcoming_cal,
+                                   "message": f"{upcoming_cal} étalonnage(s) dans 30j"})
+                if overdue_actions > 0:
+                    alerts.append({"type": "action", "severity": "warning", "count": overdue_actions,
+                                   "message": f"{overdue_actions} action(s) en retard"})
+
+                payload = _json.dumps({"alerts": alerts, "ts": datetime.utcnow().isoformat()})
+                yield f"data: {payload}\n\n"
+            except Exception:
+                pass
+            await asyncio.sleep(30)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/alerts")

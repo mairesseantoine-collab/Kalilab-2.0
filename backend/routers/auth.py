@@ -2,8 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy import select
-from datetime import timedelta
+from datetime import timedelta, datetime
 from pydantic import BaseModel
+from collections import defaultdict
+import time
 
 from database.engine import get_session
 from database.models import User
@@ -11,6 +13,26 @@ from auth.security import verify_password, create_access_token, ACCESS_TOKEN_EXP
 from auth.dependencies import get_current_user, log_action, get_client_ip
 
 router = APIRouter()
+
+# ─── Simple in-memory rate limiter for login ──────────────────────────────────
+# {ip: [timestamp, ...]}  – conserve les timestamps des 60 dernières secondes
+_login_attempts: dict[str, list[float]] = defaultdict(list)
+_RATE_LIMIT_WINDOW = 60  # secondes
+_RATE_LIMIT_MAX = 10     # tentatives max par fenêtre
+
+
+def _check_login_rate(ip: str) -> None:
+    now = time.monotonic()
+    window = now - _RATE_LIMIT_WINDOW
+    attempts = [t for t in _login_attempts[ip] if t > window]
+    if len(attempts) >= _RATE_LIMIT_MAX:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Trop de tentatives de connexion. Réessayez dans {_RATE_LIMIT_WINDOW} secondes.",
+            headers={"Retry-After": str(_RATE_LIMIT_WINDOW)},
+        )
+    attempts.append(now)
+    _login_attempts[ip] = attempts
 
 
 class TokenResponse(BaseModel):
@@ -28,6 +50,8 @@ async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     session: AsyncSession = Depends(get_session),
 ):
+    _check_login_rate(get_client_ip(request))
+
     result = await session.execute(
         select(User).where(User.email == form_data.username)
     )

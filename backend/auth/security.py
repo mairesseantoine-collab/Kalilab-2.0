@@ -4,11 +4,21 @@ from datetime import datetime, timedelta
 from typing import Optional
 import hashlib
 import os
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()
 
-SECRET_KEY = os.getenv("SECRET_KEY", "changeme-generate-a-secure-random-key")
+logger = logging.getLogger("kalilab.security")
+
+_DEFAULT_SECRET = "changeme-generate-a-secure-random-key"
+SECRET_KEY = os.getenv("SECRET_KEY", _DEFAULT_SECRET)
+if SECRET_KEY == _DEFAULT_SECRET:
+    logger.warning(
+        "SECRET_KEY utilise la valeur par défaut — DANGEREUX EN PRODUCTION. "
+        "Définissez la variable d'environnement SECRET_KEY avec une clé aléatoire sécurisée."
+    )
+
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480"))
 
