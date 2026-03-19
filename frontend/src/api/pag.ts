@@ -2,6 +2,7 @@ import client from './client';
 
 export interface ActionPAG {
   id: number;
+  num_pag?: string;
   tache: string;
   attribution?: string;
   avancement_notes?: string;
@@ -19,6 +20,7 @@ export interface ActionPAG {
 }
 
 export interface ActionPAGCreate {
+  num_pag?: string;
   tache: string;
   attribution?: string;
   avancement_notes?: string;

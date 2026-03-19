@@ -71,12 +71,15 @@ GROUPES = [
 ANNEXES = [
     "Audit interne",
     "Audit externe",
+    "Comité qualité",
     "CQ",
     "Disparition de la plainte/NCONF",
     "Documentaire",
     "Enquête de satisfaction",
     "Evaluation fournisseur",
+    "Gestion de risques",
     "Indicateur",
+    "Réunion",
     "Revue de direction",
     "Suivi dossier",
 ]
@@ -265,6 +268,7 @@ FAMILLES = [
 # ── Schemas Pydantic ───────────────────────────────────────────────────────────
 
 class ActionPAGCreate(BaseModel):
+    num_pag: Optional[str] = None
     tache: str
     attribution: Optional[str] = None
     avancement_notes: Optional[str] = None
@@ -280,6 +284,7 @@ class ActionPAGCreate(BaseModel):
 
 
 class ActionPAGUpdate(BaseModel):
+    num_pag: Optional[str] = None
     tache: Optional[str] = None
     attribution: Optional[str] = None
     avancement_notes: Optional[str] = None
@@ -299,6 +304,7 @@ class ActionPAGUpdate(BaseModel):
 def _action_dict(a: ActionPAG) -> dict:
     return {
         "id": a.id,
+        "num_pag": a.num_pag,
         "tache": a.tache,
         "attribution": a.attribution,
         "avancement_notes": a.avancement_notes,
@@ -389,6 +395,7 @@ async def create_action(
             raise HTTPException(status_code=422, detail="date_fin_prevue invalide (format YYYY-MM-DD)")
 
     action = ActionPAG(
+        num_pag=data.num_pag,
         tache=data.tache,
         attribution=data.attribution,
         avancement_notes=data.avancement_notes,

@@ -600,6 +600,9 @@ class ActionPAG(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
 
+    # Numéro de référence PAG (ex: "2018-218")
+    num_pag: Optional[str] = Field(default=None, max_length=20, index=True)
+
     # Description de la tâche
     tache: str = Field(sa_column=Column(Text))
 

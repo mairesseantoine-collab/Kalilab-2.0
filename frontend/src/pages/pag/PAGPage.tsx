@@ -75,6 +75,7 @@ interface FormState extends ActionPAGCreate {
 }
 
 const EMPTY_FORM: FormState = {
+  num_pag: '',
   tache: '',
   attribution: '',
   avancement_notes: '',
@@ -200,6 +201,7 @@ const PAGPage: React.FC = () => {
   const openEdit = (row: ActionPAG) => {
     setEditId(row.id);
     setForm({
+      num_pag: row.num_pag ?? '',
       tache: row.tache,
       attribution: row.attribution ?? '',
       avancement_notes: row.avancement_notes ?? '',
@@ -219,6 +221,7 @@ const PAGPage: React.FC = () => {
   const handleSubmit = () => {
     const payload: ActionPAGCreate = {
       ...form,
+      num_pag: form.num_pag || undefined,
       attribution: form.attribution || undefined,
       avancement_notes: form.avancement_notes || undefined,
       date_fin_prevue: form.date_fin_prevue || undefined,
@@ -236,6 +239,12 @@ const PAGPage: React.FC = () => {
 
   // ── Colonnes DataGrid ────────────────────────────────────────────────────────
   const columns: GridColDef[] = [
+    {
+      field: 'num_pag', headerName: 'N°', width: 90,
+      renderCell: (p: GridRenderCellParams) => p.value
+        ? <Typography variant="caption" fontWeight={700} color="text.secondary">{p.value}</Typography>
+        : null,
+    },
     {
       field: 'priorite', headerName: 'Priorité', width: 160,
       renderCell: (p: GridRenderCellParams) => <PrioChip value={p.value} />,
@@ -473,15 +482,24 @@ const PAGPage: React.FC = () => {
         </DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2.5}>
-            {/* Tâche */}
-            <TextField
-              label="Tâche *"
-              multiline
-              minRows={3}
-              value={form.tache}
-              onChange={e => setForm(f => ({ ...f, tache: e.target.value }))}
-              fullWidth
-            />
+            {/* N° PAG + Tâche */}
+            <Stack direction="row" spacing={2} alignItems="flex-start">
+              <TextField
+                label="N° PAG"
+                value={form.num_pag ?? ''}
+                onChange={e => setForm(f => ({ ...f, num_pag: e.target.value }))}
+                sx={{ width: 140 }}
+                placeholder="2025-099"
+              />
+              <TextField
+                label="Tâche *"
+                multiline
+                minRows={3}
+                value={form.tache}
+                onChange={e => setForm(f => ({ ...f, tache: e.target.value }))}
+                fullWidth
+              />
+            </Stack>
 
             <Grid container spacing={2}>
               {/* Attribution */}
