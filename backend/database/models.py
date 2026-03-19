@@ -352,6 +352,36 @@ class Maintenance(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class PanneEquipement(SQLModel, table=True):
+    """Historique des pannes d'un équipement — calcul MTBF."""
+    __tablename__ = "pannes_equipement"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    equipement_id: int = Field(foreign_key="equipements.id", index=True)
+    date_debut: datetime = Field(index=True)
+    date_fin: Optional[datetime] = None        # None = panne en cours
+    description: str = Field(sa_column=Column(Text))
+    cause: Optional[str] = None
+    resolution: Optional[str] = None
+    impact: str = Field(default="moyen")       # faible / moyen / critique
+    signale_par: Optional[str] = None          # nom libre ou user
+    user_id: Optional[int] = Field(default=None, foreign_key="users.id")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class EquipementPiece(SQLModel, table=True):
+    """Pièces de rechange associées à un équipement (lien stock optionnel)."""
+    __tablename__ = "equipement_pieces"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    equipement_id: int = Field(foreign_key="equipements.id", index=True)
+    article_id: Optional[int] = Field(default=None, foreign_key="articles.id")
+    designation: str
+    reference: Optional[str] = None
+    quantite_min: Optional[float] = None
+    notes: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Competence(SQLModel, table=True):
     __tablename__ = "competences"
     id: Optional[int] = Field(default=None, primary_key=True)
