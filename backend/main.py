@@ -22,6 +22,7 @@ from routers import (
     dashboard,
     messagerie,
     services,
+    pag,
 )
 
 
@@ -94,6 +95,7 @@ app.include_router(audit_trail.router, prefix="/audit-trail", tags=["Piste d'Aud
 app.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
 app.include_router(messagerie.router, prefix="/messagerie", tags=["Messagerie"])
 app.include_router(services.router, prefix="/services", tags=["Arborescence"])
+app.include_router(pag.router, prefix="/pag", tags=["PAG Biologistes"])
 
 
 @app.get("/", tags=["Racine"])

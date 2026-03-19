@@ -12,7 +12,7 @@ import {
   ChevronLeft, Notifications, Logout, Person, Language,
   ErrorOutline, WarningAmber, InfoOutlined, CheckCircleOutline,
   Gavel, FolderOpen, Science, Search as SearchIcon, Mail, AccountTree,
-  ContactPage,
+  ContactPage, PlaylistAddCheck,
 } from '@mui/icons-material';
 import CommandPalette from '../common/CommandPalette';
 import { useTranslation } from 'react-i18next';
@@ -120,6 +120,7 @@ const AppLayout: React.FC = () => {
         { label: t('nav.audits'), path: '/audits', icon: <Gavel /> },
         { label: t('nav.risks'), path: '/risks', icon: <Warning /> },
         { label: t('nav.kpi'), path: '/kpi', icon: <BarChart /> },
+        { label: 'PAG Biologistes', path: '/pag', icon: <PlaylistAddCheck /> },
       ],
     },
     {

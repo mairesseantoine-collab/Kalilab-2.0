@@ -34,6 +34,7 @@ const RedactionPage = lazy(() => import('./pages/redaction/RedactionPage'));
 const AuditTrailPage = lazy(() => import('./pages/audit_trail/AuditTrailPage'));
 const MessagingPage = lazy(() => import('./pages/messagerie/MessagingPage'));
 const ServicesPage = lazy(() => import('./pages/services/ServicesPage'));
+const PAGPage = lazy(() => import('./pages/pag/PAGPage'));
 
 const LoadingFallback = () => (
   <Box display="flex" justifyContent="center" alignItems="center" height="100vh">
@@ -89,6 +90,7 @@ const App: React.FC = () => {
           <Route path="audit-trail" element={withErrorBoundary(<AuditTrailPage />)} />
           <Route path="messagerie" element={withErrorBoundary(<MessagingPage />)} />
           <Route path="services" element={withErrorBoundary(<ServicesPage />)} />
+          <Route path="pag" element={withErrorBoundary(<PAGPage />)} />
         </Route>
         <Route path="*" element={<NotFoundPage />} />
       </Routes>

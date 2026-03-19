@@ -594,6 +594,50 @@ class PersonnelAnnuaire(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class ActionPAG(SQLModel, table=True):
+    """Plan d'Actions et de Gestion — PAG biologistes ISO 15189."""
+    __tablename__ = "actions_pag"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+
+    # Description de la tâche
+    tache: str = Field(sa_column=Column(Text))
+
+    # Attribution (responsable)
+    attribution: Optional[str] = Field(default=None, max_length=100)
+
+    # Notes d'avancement (journal horodaté)
+    avancement_notes: Optional[str] = Field(default=None, sa_column=Column(Text))
+
+    # Pourcentage d'avancement : 0, 25, 50, 75, 100
+    avancement_pct: int = Field(default=0)
+
+    # Priorité : 1-Imp + Urg | 2-Non imp - Urg | 3-Imp - Non Urg | 4-Non Imp - Non Urg
+    priorite: str = Field(default="3- Imp - Non Urg", max_length=30)
+
+    # Date de fin prévue
+    date_fin_prevue: Optional[date] = None
+
+    # Clôturé
+    cloture: bool = Field(default=False)
+
+    # Vérification d'efficacité (Oui / Non / None)
+    verification_efficacite: Optional[bool] = None
+
+    # Catégorisation (dropdowns PAG biologists)
+    groupe: Optional[str] = Field(default=None, max_length=80)
+    annexe: Optional[str] = Field(default=None, max_length=80)
+    famille: Optional[str] = Field(default=None, sa_column=Column(Text))
+
+    # Responsable du PAG (ex: "Vanneste", "Biologistes")
+    responsable_pag: Optional[str] = Field(default=None, max_length=100)
+
+    # Méta
+    created_by_id: Optional[int] = Field(default=None, foreign_key="users.id")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Message(SQLModel, table=True):
     """Messagerie interne KaliLab — avec notification email Outlook."""
     __tablename__ = "messages"
