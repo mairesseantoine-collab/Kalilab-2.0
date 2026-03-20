@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Box, Button, Chip, Typography, Paper, Grid, Divider,
@@ -7,19 +7,13 @@ import {
   DialogActions, alpha, CircularProgress,
 } from '@mui/material'
 import {
-  ArrowBack, CheckCircle, Cancel, Science, Inventory2,
+  CheckCircle, Cancel, Science, Inventory2,
   Person, CalendarToday, LocalShipping, Notes,
 } from '@mui/icons-material'
 import { stockApi } from '../../api/stock'
 import PageHeader from '../../components/common/PageHeader'
+import { LOT_STATUTS } from '../../constants/lotStatuts'
 import dayjs from 'dayjs'
-
-const LOT_STATUTS: Record<string, { label: string; color: string; bg: string }> = {
-  en_attente:  { label: 'En attente',   color: '#f59e0b', bg: '#fffbeb' },
-  accepte:     { label: 'Accepté',      color: '#10b981', bg: '#ecfdf5' },
-  refuse:      { label: 'Refusé',       color: '#ef4444', bg: '#fef2f2' },
-  quarantaine: { label: 'Quarantaine',  color: '#8b5cf6', bg: '#f5f3ff' },
-}
 
 const Field: React.FC<{ label: string; value?: React.ReactNode; icon?: React.ReactNode }> = ({ label, value, icon }) => (
   <Box display="flex" alignItems="flex-start" gap={1} py={1}>
@@ -33,31 +27,33 @@ const Field: React.FC<{ label: string; value?: React.ReactNode; icon?: React.Rea
 
 const LotDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
+  const numId = Number(id)
   const queryClient = useQueryClient()
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectMotif, setRejectMotif] = useState('')
 
   const { data: lot, isLoading } = useQuery({
     queryKey: ['lot', id],
-    queryFn: () => stockApi.getLot(Number(id)).then(r => r.data),
+    queryFn: () => stockApi.getLot(numId).then(r => r.data),
     enabled: !!id,
   })
 
+  const invalidateLots = () => {
+    queryClient.invalidateQueries({ queryKey: ['lot', id] })
+    queryClient.invalidateQueries({ queryKey: ['lots'] })
+    queryClient.invalidateQueries({ queryKey: ['lots-all'] })
+  }
+
   const acceptMutation = useMutation({
-    mutationFn: () => stockApi.acceptLot(Number(id)),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['lot', id] })
-      queryClient.invalidateQueries({ queryKey: ['lots'] })
-    },
+    mutationFn: () => stockApi.acceptLot(numId),
+    onSuccess: invalidateLots,
   })
 
   const rejectMutation = useMutation({
-    mutationFn: () => stockApi.rejectLot(Number(id), rejectMotif),
+    mutationFn: () => stockApi.rejectLot(numId, rejectMotif),
     onSuccess: () => {
       setRejectOpen(false)
-      queryClient.invalidateQueries({ queryKey: ['lot', id] })
-      queryClient.invalidateQueries({ queryKey: ['lots'] })
+      invalidateLots()
     },
   })
 

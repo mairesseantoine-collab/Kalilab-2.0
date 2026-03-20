@@ -1,4 +1,5 @@
 import json
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy import select
@@ -277,8 +278,10 @@ async def get_lot(
     lot = await session.get(Lot, lot_id)
     if not lot:
         raise HTTPException(status_code=404, detail="Lot introuvable")
-    article = await session.get(Article, lot.article_id)
-    receptionnaire = await session.get(User, lot.reception_par_id)
+    article, receptionnaire = await asyncio.gather(
+        session.get(Article, lot.article_id),
+        session.get(User, lot.reception_par_id),
+    )
     return {
         "id": lot.id,
         "article_id": lot.article_id,
