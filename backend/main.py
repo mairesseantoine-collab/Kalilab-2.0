@@ -1,8 +1,9 @@
 import os
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from database.engine import create_db_and_tables
 from routers import (
     auth,
@@ -77,6 +78,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """
+    Gestionnaire global : toute exception non capturée renvoie du JSON avec headers CORS.
+    Sans ce handler, Starlette retourne du texte brut SANS headers CORS → le navigateur
+    bloque la réponse et le frontend affiche "Erreur serveur." sans détail.
+    """
+    logger.error("Unhandled exception on %s %s: %s", request.method, request.url.path, exc, exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Erreur serveur : {type(exc).__name__}: {exc}"},
+    )
 
 app.include_router(auth.router, prefix="/auth", tags=["Authentification"])
 app.include_router(users.router, prefix="/users", tags=["Utilisateurs"])
