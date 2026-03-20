@@ -268,6 +268,75 @@ async def expiring_lots(
     ]
 
 
+@router.get("/lots/{lot_id}")
+async def get_lot(
+    lot_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    lot = await session.get(Lot, lot_id)
+    if not lot:
+        raise HTTPException(status_code=404, detail="Lot introuvable")
+    article = await session.get(Article, lot.article_id)
+    receptionnaire = await session.get(User, lot.reception_par_id)
+    return {
+        "id": lot.id,
+        "article_id": lot.article_id,
+        "article_designation": article.designation if article else None,
+        "article_reference": article.reference if article else None,
+        "numero_lot": lot.numero_lot,
+        "dlu": lot.dlu,
+        "quantite_recue": lot.quantite_recue,
+        "quantite_restante": lot.quantite_restante,
+        "statut": lot.statut.value,
+        "conformite": lot.conformite,
+        "certificat_path": lot.certificat_path,
+        "essai_acceptation": lot.essai_acceptation,
+        "date_reception": lot.date_reception,
+        "reception_par": f"{receptionnaire.prenom} {receptionnaire.nom}" if receptionnaire else None,
+        "commande_id": lot.commande_id,
+        "notes": lot.notes,
+    }
+
+
+@router.get("/articles/{article_id}")
+async def get_article(
+    article_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    article = await session.get(Article, article_id)
+    if not article:
+        raise HTTPException(status_code=404, detail="Article introuvable")
+    result = await session.execute(
+        select(Lot).where(Lot.article_id == article_id).order_by(Lot.date_reception.desc())
+    )
+    lots = result.scalars().all()
+    return {
+        "id": article.id,
+        "reference": article.reference,
+        "gs1_code": article.gs1_code,
+        "designation": article.designation,
+        "categorie": article.categorie,
+        "unite": article.unite,
+        "seuil_alerte": article.seuil_alerte,
+        "stock_actuel": article.stock_actuel,
+        "fournisseur_id": article.fournisseur_id,
+        "created_at": article.created_at,
+        "lots": [
+            {
+                "id": l.id,
+                "numero_lot": l.numero_lot,
+                "statut": l.statut.value,
+                "quantite_restante": l.quantite_restante,
+                "dlu": l.dlu,
+                "date_reception": l.date_reception,
+            }
+            for l in lots
+        ],
+    }
+
+
 @router.get("/fournisseurs")
 async def list_fournisseurs(
     session: AsyncSession = Depends(get_session),

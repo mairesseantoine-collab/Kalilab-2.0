@@ -27,6 +27,8 @@ const HRPage = lazy(() => import('./pages/hr/HRPage'));
 const HRAnnuairePage = lazy(() => import('./pages/hr/HRAnnuairePage'));
 const StockPage = lazy(() => import('./pages/stock/StockPage'));
 const ReceptionPage = lazy(() => import('./pages/stock/ReceptionPage'));
+const LotDetailPage = lazy(() => import('./pages/stock/LotDetailPage'));
+const ArticleDetailPage = lazy(() => import('./pages/stock/ArticleDetailPage'));
 const ComplaintsPage = lazy(() => import('./pages/complaints/ComplaintsPage'));
 const ComplaintDetailPage = lazy(() => import('./pages/complaints/ComplaintDetailPage'));
 const ComplaintFormPage = lazy(() => import('./pages/complaints/ComplaintFormPage'));
@@ -83,6 +85,8 @@ const App: React.FC = () => {
           <Route path="hr/annuaire" element={withErrorBoundary(<HRAnnuairePage />)} />
           <Route path="stock" element={withErrorBoundary(<StockPage />)} />
           <Route path="stock/reception" element={withErrorBoundary(<ReceptionPage />)} />
+          <Route path="stock/lots/:id" element={withErrorBoundary(<LotDetailPage />)} />
+          <Route path="stock/articles/:id" element={withErrorBoundary(<ArticleDetailPage />)} />
           <Route path="complaints" element={withErrorBoundary(<ComplaintsPage />)} />
           <Route path="complaints/new" element={withErrorBoundary(<ComplaintFormPage />)} />
           <Route path="complaints/:id" element={withErrorBoundary(<ComplaintDetailPage />)} />
