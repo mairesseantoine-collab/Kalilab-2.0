@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -9,14 +9,8 @@ import { DataGrid, GridColDef, GridRenderCellParams } from '@mui/x-data-grid'
 import { TrendingDown } from '@mui/icons-material'
 import { stockApi } from '../../api/stock'
 import PageHeader from '../../components/common/PageHeader'
+import { LOT_STATUTS } from '../../constants/lotStatuts'
 import dayjs from 'dayjs'
-
-const LOT_STATUTS: Record<string, { label: string; color: string; bg: string }> = {
-  en_attente:  { label: 'En attente',  color: '#f59e0b', bg: '#fffbeb' },
-  accepte:     { label: 'Accepté',     color: '#10b981', bg: '#ecfdf5' },
-  refuse:      { label: 'Refusé',      color: '#ef4444', bg: '#fef2f2' },
-  quarantaine: { label: 'Quarantaine', color: '#8b5cf6', bg: '#f5f3ff' },
-}
 
 const ArticleDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>()
@@ -28,16 +22,7 @@ const ArticleDetailPage: React.FC = () => {
     enabled: !!id,
   })
 
-  if (isLoading) {
-    return <Box display="flex" justifyContent="center" mt={8}><CircularProgress /></Box>
-  }
-
-  if (!article) return null
-
-  const isCritical = article.stock_actuel <= article.seuil_alerte
-  const lots: any[] = (article as any).lots ?? []
-
-  const lotsColumns: GridColDef[] = [
+  const lotsColumns: GridColDef[] = useMemo(() => [
     {
       field: 'numero_lot', headerName: 'N° Lot', width: 160,
       renderCell: (p: GridRenderCellParams) => (
@@ -78,7 +63,16 @@ const ArticleDetailPage: React.FC = () => {
         <Typography variant="body2">{dayjs(p.value).format('DD/MM/YYYY')}</Typography>
       ) : null,
     },
-  ]
+  ], [navigate])
+
+  if (isLoading) {
+    return <Box display="flex" justifyContent="center" mt={8}><CircularProgress /></Box>
+  }
+
+  if (!article) return null
+
+  const isCritical = article.stock_actuel <= article.seuil_alerte
+  const lots = article.lots ?? []
 
   return (
     <Box>

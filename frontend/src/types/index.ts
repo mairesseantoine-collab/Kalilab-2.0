@@ -183,8 +183,15 @@ export interface Lot {
   quantite_restante: number
   statut: LotStatus
   certificat_path?: string
-  conformite?: boolean
+  conformite?: boolean | null
   date_reception: string
+  // Champs supplémentaires retournés par GET /lots/{id}
+  article_designation?: string
+  article_reference?: string
+  reception_par?: string
+  commande_id?: number
+  notes?: string
+  essai_acceptation?: string
 }
 
 export interface Article {
@@ -196,6 +203,17 @@ export interface Article {
   unite: string
   seuil_alerte: number
   stock_actuel: number
+  fournisseur_id?: number
+  created_at?: string
+  // Champ supplémentaire retourné par GET /articles/{id}
+  lots?: Array<{
+    id: number
+    numero_lot: string
+    statut: LotStatus
+    quantite_restante: number
+    dlu?: string
+    date_reception: string
+  }>
 }
 
 export interface Fournisseur {
