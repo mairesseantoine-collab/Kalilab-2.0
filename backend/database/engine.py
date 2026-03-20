@@ -77,9 +77,11 @@ async def _apply_migrations():
         "ALTER TABLE documents_qualite ADD COLUMN IF NOT EXISTS type_document VARCHAR",
         "ALTER TABLE documents_qualite ADD COLUMN IF NOT EXISTS numero_document VARCHAR",
         "ALTER TABLE documents_qualite ADD COLUMN IF NOT EXISTS periodicite_revision INTEGER",
+        "ALTER TABLE documents_qualite ADD COLUMN IF NOT EXISTS theme VARCHAR",
         "ALTER TABLE documents_qualite ADD COLUMN IF NOT EXISTS classification VARCHAR",
         "ALTER TABLE documents_qualite ADD COLUMN IF NOT EXISTS fichier_path VARCHAR",
         "ALTER TABLE documents_qualite ADD COLUMN IF NOT EXISTS liens_processus TEXT",
+        "ALTER TABLE documents_qualite ADD COLUMN IF NOT EXISTS contenu TEXT",
         # equipements : colonnes pannes/MTBF
         "ALTER TABLE equipements ADD COLUMN IF NOT EXISTS nombre_pannes INTEGER DEFAULT 0",
         "ALTER TABLE equipements ADD COLUMN IF NOT EXISTS temps_arret_total FLOAT DEFAULT 0.0",
@@ -91,6 +93,8 @@ async def _apply_migrations():
         # indicateurs_qualite : biologiste assigné
         "ALTER TABLE indicateurs_qualite ADD COLUMN IF NOT EXISTS biologiste_id INTEGER REFERENCES users(id)",
         "ALTER TABLE indicateurs_qualite ADD COLUMN IF NOT EXISTS fichier_excel_path VARCHAR",
+        # actions_pag : num_pag ajouté après création initiale
+        "ALTER TABLE actions_pag ADD COLUMN IF NOT EXISTS num_pag VARCHAR(20)",
     ]
     async with engine.begin() as conn:
         for stmt in migrations:
